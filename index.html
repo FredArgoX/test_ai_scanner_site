@@ -1,0 +1,1114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Reticle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: camera stage on the left, result + history + photo scan on the right; stacked on phones. */
+:root {
+  --bg: #f3f4f6; --surface: #ffffff; --surface-2: #eceef2; --line: #d9dde4;
+  --fg: #14181f; --muted: #576070; --accent: #d4261b; --accent-fg: #ffffff;
+  --ok: #17803d; --ok-bg: #e3f4e9; --warn: #9a5b00; --warn-bg: #fdf0d6; --bad: #b42318; --bad-bg: #fde4e1;
+  --stage: #0b0d10; --stage-fg: #e9edf2;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #161a21; --surface-2: #1f242d; --line: #2a313c;
+    --fg: #e8ebf0; --muted: #9aa3b0; --accent: #ff5a4d; --accent-fg: #1a0502;
+    --ok: #4cc27a; --ok-bg: #12271b; --warn: #f0b34a; --warn-bg: #2b2210; --bad: #ff8277; --bad-bg: #2f1513;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #161a21; --surface-2: #1f242d; --line: #2a313c;
+  --fg: #e8ebf0; --muted: #9aa3b0; --accent: #ff5a4d; --accent-fg: #1a0502;
+  --ok: #4cc27a; --ok-bg: #12271b; --warn: #f0b34a; --warn-bg: #2b2210; --bad: #ff8277; --bad-bg: #2f1513;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); -webkit-text-size-adjust: 100%; }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 14px max(16px, env(safe-area-inset-left, 0px)) 40px max(16px, env(safe-area-inset-right, 0px)); }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-block: 6px 14px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 20px; letter-spacing: .01em; }
+.brand svg { width: 26px; height: 26px; }
+.eng { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font: 500 12px/1.6 var(--mono); border: 1px solid var(--line); white-space: nowrap; }
+.chip.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.chip.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.chip.bad { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.app { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .app { grid-template-columns: minmax(0, 1fr); } }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.card h2 { margin: 0 0 10px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.card h2 .sp { margin-left: auto; display: flex; gap: 6px; }
+
+/* Stage */
+.stage { position: relative; background: var(--stage); color: var(--stage-fg); border-radius: 12px; overflow: hidden; height: min(64vh, 560px); min-height: 300px; border: 1px solid var(--line); }
+.stage video, .stage canvas.ov { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage video { object-fit: contain; background: #000; }
+.stage canvas.ov { pointer-events: none; }
+.reticle { position: absolute; inset: 16% 12%; pointer-events: none; }
+.reticle i { position: absolute; width: 28px; height: 28px; border: 3px solid rgba(255,255,255,.85); }
+.reticle i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 8px; }
+.reticle i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 8px; }
+.reticle i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 8px; }
+.reticle i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 8px; }
+.laser { position: absolute; left: 0; right: 0; height: 2px; background: #ff3b30; box-shadow: 0 0 12px 2px rgba(255,59,48,.65); top: 0; animation: sweep 2.2s ease-in-out infinite alternate; }
+@keyframes sweep { from { top: 4%; } to { top: 96%; } }
+.stage.paused .laser, .stage.idle .laser, .stage.idle .reticle { display: none; }
+@media (prefers-reduced-motion: reduce) { .laser { animation: none; top: 50%; } }
+.hud { position: absolute; left: 10px; right: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; pointer-events: none; }
+.hud .chip { background: rgba(10,12,15,.62); color: #e9edf2; border-color: rgba(255,255,255,.14); backdrop-filter: blur(4px); }
+.hint { position: absolute; left: 10px; right: 10px; bottom: 10px; display: flex; justify-content: center; pointer-events: none; }
+.hint span { background: rgba(10,12,15,.72); color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 13px; text-align: center; max-width: 100%; }
+.idle-msg { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; }
+.idle-msg p { margin: 0; max-width: 46ch; color: #c5ccd6; font-size: 14px; }
+.stage:not(.idle) .idle-msg { display: none; }
+.resume { position: absolute; inset: auto 0 56px 0; display: none; justify-content: center; }
+.stage.paused .resume { display: flex; }
+
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
+.btn[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: transparent; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.sm { padding: 4px 10px; font-size: 13px; }
+select, input[type=range] { max-width: 100%; }
+select { padding: 7px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); }
+.zoom { display: none; align-items: center; gap: 8px; flex: 1 1 160px; min-width: 140px; }
+.zoom input { flex: 1; accent-color: var(--accent); }
+
+/* Enhancement meter */
+.enh { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.meter { display: flex; gap: 4px; }
+.meter i { width: 26px; height: 8px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); }
+.meter i.on { background: var(--accent); border-color: transparent; }
+.enh .label { font: 500 13px var(--mono); color: var(--muted); }
+.gauges { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; margin-top: 12px; }
+.gauge { font: 500 12px var(--mono); color: var(--muted); }
+.gauge b { display: block; font: 500 15px var(--mono); color: var(--fg); }
+.gauge .track { height: 4px; border-radius: 2px; background: var(--surface-2); margin-top: 4px; overflow: hidden; }
+.gauge .track i { display: block; height: 100%; background: var(--fg); width: 0; }
+
+/* Result */
+.result-empty { color: var(--muted); margin: 0; }
+.value { font: 500 20px/1.35 var(--mono); word-break: break-all; overflow-wrap: anywhere; background: var(--surface-2); border-radius: 9px; padding: 12px; margin: 8px 0 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.kv { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 4px 14px; margin: 12px 0 0; font-size: 14px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+pre.hex { margin: 8px 0 0; font: 12px/1.5 var(--mono); background: var(--surface-2); padding: 10px; border-radius: 8px; overflow-x: auto; max-width: 100%; }
+table.fields { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+table.fields th, table.fields td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.fields td:first-child { font-family: var(--mono); white-space: nowrap; }
+table.fields td:last-child { font-family: var(--mono); overflow-wrap: anywhere; }
+.tablewrap { overflow-x: auto; max-width: 100%; }
+
+.hist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.hist li { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 2px 10px; padding: 9px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.hist li:first-child { border-top: 0; }
+.hist .t { font: 500 14px var(--mono); overflow-wrap: anywhere; }
+.hist .m { font-size: 12px; color: var(--muted); }
+.hist .x { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
+
+.drop { border: 1.5px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); }
+.drop.over { border-color: var(--accent); background: var(--surface-2); }
+.drop canvas { max-width: 100%; height: auto; margin-top: 12px; border-radius: 8px; display: block; margin-inline: auto; }
+.log { font: 12px/1.6 var(--mono); color: var(--muted); margin-top: 8px; }
+.settings { display: grid; gap: 14px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.row > label.t { min-width: 120px; color: var(--muted); font-size: 13px; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.checks label { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; font: 500 12px var(--mono); cursor: pointer; }
+.checks input { accent-color: var(--accent); }
+.note { font-size: 13px; color: var(--muted); margin: 0; }
+.err { background: var(--bad-bg); color: var(--bad); padding: 10px 12px; border-radius: 9px; font-size: 14px; margin-top: 10px; display: none; }
+.err.show { display: block; }
+.err code { font-family: var(--mono); }
+.flash { position: absolute; inset: 0; border: 4px solid var(--ok); border-radius: 12px; pointer-events: none; opacity: 0; transition: opacity .5s; }
+.flash.on { opacity: 1; transition: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M3 11V5a2 2 0 0 1 2-2h6M21 3h6a2 2 0 0 1 2 2v6M29 21v6a2 2 0 0 1-2 2h-6M11 29H5a2 2 0 0 1-2-2v-6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M4 16h24" stroke="#ff3b30" stroke-width="2.4" stroke-linecap="round"/></svg>
+      Reticle
+    </div>
+    <div class="eng" id="engines" aria-live="polite">
+      <span class="chip" id="chipZx"><span class="dot"></span>ZXing: loading</span>
+      <span class="chip" id="chipNative"><span class="dot"></span>Native: checking</span>
+    </div>
+  </header>
+
+  <div class="app">
+    <div class="col">
+      <section aria-label="Camera scanner">
+        <div class="stage idle" id="stage">
+          <video id="video" playsinline muted autoplay></video>
+          <canvas class="ov" id="overlay"></canvas>
+          <div class="reticle"><i></i><i></i><i></i><i></i><div class="laser"></div></div>
+          <div class="hud" id="hud"></div>
+          <div class="hint"><span id="hint" hidden></span></div>
+          <div class="resume"><button class="btn primary" id="btnResume">Scan next</button></div>
+          <div class="idle-msg">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#c5ccd6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/></svg>
+            <p>Point the camera at any barcode, QR code, Data Matrix or product identifier. Weak cameras are boosted automatically.</p>
+            <button class="btn primary" id="btnStart">Start camera</button>
+          </div>
+          <div class="flash" id="flash"></div>
+        </div>
+        <div class="err" id="camErr" role="alert"></div>
+        <div class="bar">
+          <button class="btn" id="btnStop" disabled>Stop</button>
+          <button class="btn" id="btnTorch" aria-pressed="false" disabled hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>Light</button>
+          <select id="selCam" aria-label="Camera" hidden></select>
+          <div class="zoom" id="zoomBox"><label for="zoom">Zoom</label><input type="range" id="zoom" min="1" max="4" step="0.1" value="1"><span class="chip" id="zoomVal">1.0×</span></div>
+        </div>
+      </section>
+
+      <section class="card" aria-label="Enhancement status">
+        <h2>Auto enhancement</h2>
+        <div class="enh">
+          <div class="meter" id="meter" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+          <span class="label" id="enhLabel">Level 0 · idle</span>
+        </div>
+        <div class="gauges">
+          <div class="gauge">Light<b id="gLight">–</b><div class="track"><i id="bLight"></i></div></div>
+          <div class="gauge">Sharpness<b id="gSharp">–</b><div class="track"><i id="bSharp"></i></div></div>
+          <div class="gauge">Resolution<b id="gRes">–</b><div class="track"><i id="bRes"></i></div></div>
+        </div>
+        <p class="note" style="margin-top:12px">When nothing reads, the scanner escalates on its own: contrast and gamma correction, sharpening, local-contrast and adaptive thresholds, zoomed crops of the centre and tiles at full sensor resolution, multi-frame noise averaging, denoise, and a high-resolution still photo where the browser allows it. Every result must be confirmed by several reads before it is accepted.</p>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card" aria-label="Latest result" aria-live="polite">
+        <h2>Latest scan <span class="sp"><button class="btn sm" id="btnCopy" hidden>Copy</button></span></h2>
+        <div id="result"><p class="result-empty">Nothing scanned yet.</p></div>
+      </section>
+
+      <section class="card" aria-label="Scan a photo">
+        <h2>Scan a photo</h2>
+        <div class="drop" id="drop">
+          <p style="margin:0 0 10px">Drop, paste or choose an image. Every enhancement level runs on the still.</p>
+          <label class="btn" for="file" style="cursor:pointer">Choose image or take a photo</label>
+          <input type="file" id="file" accept="image/*" style="position:absolute;width:1px;height:1px;opacity:0">
+          <canvas id="still" hidden></canvas>
+          <div class="log" id="stillLog"></div>
+        </div>
+      </section>
+
+      <section class="card" aria-label="History">
+        <h2>History <span class="sp"><button class="btn sm" id="btnCsv">CSV</button><button class="btn sm" id="btnJson">JSON</button><button class="btn sm" id="btnClear">Clear</button></span></h2>
+        <ul class="hist" id="hist"></ul>
+        <p class="note" id="histEmpty">Accepted scans appear here and are kept in this browser.</p>
+      </section>
+
+      <section class="card" aria-label="Settings">
+        <h2>Settings</h2>
+        <div class="settings">
+          <div class="row"><label class="t" for="selMode">Accuracy</label>
+            <select id="selMode">
+              <option value="fast">Fast: 1 read when the symbology self-checks</option>
+              <option value="verified" selected>Verified: 2 matching reads (default)</option>
+              <option value="max">Maximum: 3 matching reads, no shortcuts</option>
+            </select></div>
+          <div class="row"><label class="t" for="selEnh">Enhancement</label>
+            <select id="selEnh">
+              <option value="auto" selected>Automatic: escalate when reads fail</option>
+              <option value="max">Always maximum</option>
+              <option value="off">Off: raw frames only</option>
+            </select></div>
+          <div class="row"><label class="t" for="selScan">After a scan</label>
+            <select id="selScan"><option value="single" selected>Pause and wait</option><option value="continuous">Keep scanning</option></select></div>
+          <div class="row"><label class="t">Options</label>
+            <div class="checks">
+              <label><input type="checkbox" id="optMulti" checked>Several codes per frame</label>
+              <label><input type="checkbox" id="optTorch" checked>Auto light when dark</label>
+              <label><input type="checkbox" id="optStill" checked>High-res still rescue</label>
+              <label><input type="checkbox" id="optSound" checked>Beep</label>
+              <label><input type="checkbox" id="optVibe" checked>Vibrate</label>
+            </div></div>
+          <div class="row"><label class="t" for="selPreset">Formats</label>
+            <select id="selPreset">
+              <option value="all" selected>All supported</option>
+              <option value="retail">Retail products (EAN, UPC, ISBN)</option>
+              <option value="logistics">Logistics (Code 128, ITF, DataBar, GS1)</option>
+              <option value="2d">2D only (QR, Data Matrix, Aztec, PDF417)</option>
+              <option value="custom">Custom</option>
+            </select></div>
+          <div class="checks" id="fmtChecks"></div>
+          <p class="note">Restricting formats speeds up reading and removes false positives from codes you do not use.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* PURE:START */
+const FORMAT_META = {
+  ean13: { label: 'EAN-13', kind: '1D', strong: true }, ean8: { label: 'EAN-8', kind: '1D', strong: true },
+  upca: { label: 'UPC-A', kind: '1D', strong: true }, upce: { label: 'UPC-E', kind: '1D', strong: true },
+  code128: { label: 'Code 128', kind: '1D', strong: true }, code39: { label: 'Code 39', kind: '1D', strong: false },
+  code93: { label: 'Code 93', kind: '1D', strong: true }, itf: { label: 'ITF (Interleaved 2 of 5)', kind: '1D', strong: false },
+  codabar: { label: 'Codabar', kind: '1D', strong: false }, databar: { label: 'GS1 DataBar', kind: '1D', strong: true },
+  databarexpanded: { label: 'GS1 DataBar Expanded', kind: '1D', strong: true }, databarlimited: { label: 'GS1 DataBar Limited', kind: '1D', strong: true },
+  dxfilmedge: { label: 'DX Film Edge', kind: '1D', strong: false },
+  qrcode: { label: 'QR Code', kind: '2D', strong: true }, microqrcode: { label: 'Micro QR', kind: '2D', strong: true },
+  rmqrcode: { label: 'rMQR', kind: '2D', strong: true }, datamatrix: { label: 'Data Matrix', kind: '2D', strong: true },
+  aztec: { label: 'Aztec', kind: '2D', strong: true }, pdf417: { label: 'PDF417', kind: '2D', strong: true },
+  maxicode: { label: 'MaxiCode', kind: '2D', strong: true }
+};
+const normFmt = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const fmtInfo = f => FORMAT_META[normFmt(f)] || { label: String(f || 'Unknown'), kind: '?', strong: false };
+
+const GS1_PREFIX = [
+  [0,19,'United States & Canada'],[20,29,'Restricted distribution (in-store)'],[30,39,'United States'],[40,49,'Restricted distribution (in-store)'],
+  [50,59,'Coupons'],[60,139,'United States & Canada'],[300,379,'France & Monaco'],[380,380,'Bulgaria'],[383,383,'Slovenia'],[385,385,'Croatia'],
+  [387,387,'Bosnia & Herzegovina'],[389,389,'Montenegro'],[390,390,'Kosovo'],[400,440,'Germany'],[450,459,'Japan'],[460,469,'Russia'],
+  [470,470,'Kyrgyzstan'],[471,471,'Taiwan'],[474,474,'Estonia'],[475,475,'Latvia'],[476,476,'Azerbaijan'],[477,477,'Lithuania'],[478,478,'Uzbekistan'],
+  [479,479,'Sri Lanka'],[480,480,'Philippines'],[481,481,'Belarus'],[482,482,'Ukraine'],[483,483,'Turkmenistan'],[484,484,'Moldova'],[485,485,'Armenia'],
+  [486,486,'Georgia'],[487,487,'Kazakhstan'],[488,488,'Tajikistan'],[489,489,'Hong Kong'],[490,499,'Japan'],[500,509,'United Kingdom'],[520,521,'Greece'],
+  [528,528,'Lebanon'],[529,529,'Cyprus'],[530,530,'Albania'],[531,531,'North Macedonia'],[535,535,'Malta'],[539,539,'Ireland'],[540,549,'Belgium & Luxembourg'],
+  [560,560,'Portugal'],[569,569,'Iceland'],[570,579,'Denmark, Faroe Islands & Greenland'],[590,590,'Poland'],[594,594,'Romania'],[599,599,'Hungary'],
+  [600,601,'South Africa'],[603,603,'Ghana'],[604,604,'Senegal'],[608,608,'Bahrain'],[609,609,'Mauritius'],[611,611,'Morocco'],[613,613,'Algeria'],
+  [615,615,'Nigeria'],[616,616,'Kenya'],[617,617,'Cameroon'],[618,618,"Côte d'Ivoire"],[619,619,'Tunisia'],[620,620,'Tanzania'],[621,621,'Syria'],
+  [622,622,'Egypt'],[623,623,'Brunei'],[624,624,'Libya'],[625,625,'Jordan'],[626,626,'Iran'],[627,627,'Kuwait'],[628,628,'Saudi Arabia'],
+  [629,629,'United Arab Emirates'],[630,630,'Qatar'],[631,631,'Namibia'],[640,649,'Finland'],[690,699,'China'],[700,709,'Norway'],[729,729,'Israel'],
+  [730,739,'Sweden'],[740,740,'Guatemala'],[741,741,'El Salvador'],[742,742,'Honduras'],[743,743,'Nicaragua'],[744,744,'Costa Rica'],[745,745,'Panama'],
+  [746,746,'Dominican Republic'],[750,750,'Mexico'],[754,755,'Canada'],[759,759,'Venezuela'],[760,769,'Switzerland & Liechtenstein'],[770,771,'Colombia'],
+  [773,773,'Uruguay'],[775,775,'Peru'],[777,777,'Bolivia'],[778,779,'Argentina'],[780,780,'Chile'],[784,784,'Paraguay'],[786,786,'Ecuador'],
+  [789,790,'Brazil'],[800,839,'Italy, San Marino & Vatican'],[840,849,'Spain & Andorra'],[850,850,'Cuba'],[858,858,'Slovakia'],[859,859,'Czechia'],
+  [860,860,'Serbia'],[865,865,'Mongolia'],[867,867,'North Korea'],[868,869,'Türkiye'],[870,879,'Netherlands'],[880,880,'South Korea'],[884,884,'Cambodia'],
+  [885,885,'Thailand'],[888,888,'Singapore'],[890,890,'India'],[893,893,'Vietnam'],[896,896,'Pakistan'],[899,899,'Indonesia'],[900,919,'Austria'],
+  [930,939,'Australia'],[940,949,'New Zealand'],[950,950,'GS1 Global Office'],[951,951,'GS1 Global Office (EPC)'],[955,955,'Malaysia'],[958,958,'Macau'],
+  [960,969,'GS1 Global Office (GTIN-8)'],[977,977,'Serial publications (ISSN)'],[978,979,'Books (ISBN)'],[980,980,'Refund receipts'],[981,984,'Coupons'],[990,999,'Coupons']
+];
+function gs1Country(prefix3) {
+  const n = parseInt(prefix3, 10);
+  if (!(n >= 0)) return null;
+  for (const [a, b, name] of GS1_PREFIX) if (n >= a && n <= b) return name;
+  return null;
+}
+function mod10Check(body) {
+  let sum = 0;
+  for (let i = body.length - 1, k = 0; i >= 0; i--, k++) sum += (+body[i]) * (k % 2 === 0 ? 3 : 1);
+  return (10 - (sum % 10)) % 10;
+}
+const gtinValid = s => /^(\d{8}|\d{12,14})$/.test(s) && mod10Check(s.slice(0, -1)) === +s.slice(-1);
+const ssccValid = s => /^\d{18}$/.test(s) && mod10Check(s.slice(0, -1)) === +s.slice(-1);
+function upceToUpca(s) {
+  if (!/^[01]\d{7}$/.test(s)) return null;
+  const ns = s[0], d = s.slice(1, 7), chk = s[7], last = d[5];
+  let m;
+  if ('012'.includes(last)) m = d[0] + d[1] + last + '0000' + d[2] + d[3] + d[4];
+  else if (last === '3') m = d[0] + d[1] + d[2] + '00000' + d[3] + d[4];
+  else if (last === '4') m = d[0] + d[1] + d[2] + d[3] + '00000' + d[4];
+  else m = d[0] + d[1] + d[2] + d[3] + d[4] + '0000' + last;
+  return ns + m + chk;
+}
+function isbn13to10(s) {
+  if (!/^978\d{10}$/.test(s)) return null;
+  const b = s.slice(3, 12); let sum = 0;
+  for (let i = 0; i < 9; i++) sum += (+b[i]) * (10 - i);
+  const c = (11 - (sum % 11)) % 11;
+  return b + (c === 10 ? 'X' : String(c));
+}
+function issnFromEan(s) {
+  if (!/^977\d{10}$/.test(s)) return null;
+  const b = s.slice(3, 10); let sum = 0;
+  for (let i = 0; i < 7; i++) sum += (+b[i]) * (8 - i);
+  const c = (11 - (sum % 11)) % 11;
+  return b.slice(0, 4) + '-' + b.slice(4) + (c === 10 ? 'X' : String(c));
+}
+
+const AI_NAMES = {
+  '00': 'SSCC', '01': 'GTIN', '02': 'GTIN of contained items', '10': 'Batch / lot', '11': 'Production date', '12': 'Due date',
+  '13': 'Packaging date', '15': 'Best before', '16': 'Sell by', '17': 'Expiry date', '20': 'Variant', '21': 'Serial number',
+  '22': 'Consumer product variant', '240': 'Additional product ID', '241': 'Customer part number', '242': 'Made-to-order variation',
+  '250': 'Secondary serial', '251': 'Reference to source', '253': 'GDTI', '254': 'GLN extension', '255': 'GCN', '30': 'Count of items',
+  '37': 'Count of units', '400': 'Customer PO number', '401': 'GINC', '402': 'GSIN', '410': 'Ship to GLN', '411': 'Bill to GLN',
+  '412': 'Purchased from GLN', '413': 'Ship for GLN', '414': 'Physical location GLN', '415': 'Invoicing party GLN', '416': 'Production location GLN',
+  '420': 'Ship-to postal code', '421': 'Ship-to postal code (with ISO country)', '422': 'Country of origin', '423': 'Country of initial processing',
+  '424': 'Country of processing', '425': 'Country of disassembly', '426': 'Country covering full process', '7003': 'Expiry date and time',
+  '8003': 'GRAI', '8004': 'GIAI', '8006': 'ITIP', '8010': 'CPID', '8011': 'CPID serial', '8017': 'GSRN (provider)', '8018': 'GSRN (recipient)', '8200': 'Product URL'
+};
+const AI_MEASURE = { '310': 'Net weight (kg)', '311': 'Length (m)', '312': 'Width (m)', '313': 'Height (m)', '314': 'Area (m²)', '315': 'Net volume (l)', '316': 'Net volume (m³)',
+  '320': 'Net weight (lb)', '330': 'Gross weight (kg)', '340': 'Gross weight (lb)', '350': 'Area (in²)', '360': 'Volume (qt)', '390': 'Amount payable', '392': 'Amount payable (single item)' };
+function aiLen(s) {
+  const d2 = s.slice(0, 2);
+  if (['00','01','02','03','10','11','12','13','14','15','16','17','18','19','20','21','22','30','37'].includes(d2) || /^9[0-9]$/.test(d2)) return 2;
+  if (['31','32','33','34','35','36','39','70','80','81','82'].includes(d2)) return 4;
+  if (['23','24','25','40','41','42','43'].includes(d2)) return 3;
+  return 0;
+}
+function aiFixed(ai) {
+  const t = { '00': 18, '01': 14, '02': 14, '03': 14, '11': 6, '12': 6, '13': 6, '14': 6, '15': 6, '16': 6, '17': 6, '18': 6, '19': 6, '20': 2,
+    '7001': 13, '7003': 10, '8005': 6, '8006': 18, '8017': 18, '8018': 18, '8001': 14 };
+  if (t[ai]) return t[ai];
+  if (ai.length === 4 && /^3[1-6]/.test(ai)) return 6;
+  if (/^41[0-7]$/.test(ai)) return 13;
+  return 0;
+}
+function gs1Date(v) {
+  if (!/^\d{6}$/.test(v)) return null;
+  const yy = +v.slice(0, 2), mm = v.slice(2, 4), dd = v.slice(4, 6);
+  const thisYear = new Date().getFullYear();
+  let y = 2000 + yy; if (y > thisYear + 50) y -= 100;
+  if (+mm < 1 || +mm > 12) return null;
+  return dd === '00' ? y + '-' + mm + ' (day not given)' : y + '-' + mm + '-' + dd;
+}
+function gs1Field(ai, v) {
+  let name = AI_NAMES[ai] || (ai.length === 4 && AI_MEASURE[ai.slice(0, 3)]) || (/^9[1-9]$/.test(ai) || ai === '90' ? 'Company internal' : 'Application identifier ' + ai);
+  const f = { ai, name, value: v, pretty: v, ok: true, note: '' };
+  if (['11', '12', '13', '15', '16', '17'].includes(ai)) { const d = gs1Date(v); if (d) f.pretty = d; else { f.ok = false; f.note = 'invalid date'; } }
+  if (ai === '01' || ai === '02') { f.ok = gtinValid(v); f.note = f.ok ? 'check digit valid' : 'check digit FAILED'; }
+  if (ai === '00') { f.ok = ssccValid(v); f.note = f.ok ? 'check digit valid' : 'check digit FAILED'; }
+  if (ai.length === 4 && AI_MEASURE[ai.slice(0, 3)] && /^\d{6}$/.test(v)) {
+    const dec = +ai[3]; f.pretty = dec ? v.slice(0, 6 - dec).replace(/^0+(?=\d)/, '') + '.' + v.slice(6 - dec) : v.replace(/^0+(?=\d)/, '');
+  }
+  return f;
+}
+function parseGS1(text) {
+  const out = [];
+  text = String(text).replace(/^\](?:d2|C1|Q3|e0|e1|e2|A\d)/, '');
+  if (/^\(\d{2,4}\)/.test(text)) {
+    const re = /\((\d{2,4})\)([^(]*)/g; let m;
+    while ((m = re.exec(text))) out.push(gs1Field(m[1], m[2]));
+    return out;
+  }
+  text = text.replace(/^\x1d/, '');
+  let i = 0;
+  while (i < text.length) {
+    const L = aiLen(text.slice(i, i + 4));
+    if (!L) { out.push({ ai: '?', name: 'Unparsed remainder', value: text.slice(i), pretty: text.slice(i), ok: false, note: 'unknown AI' }); break; }
+    const ai = text.substr(i, L); i += L;
+    const fl = aiFixed(ai); let v;
+    if (fl) { v = text.substr(i, fl); i += fl; if (v.length < fl) { const f = gs1Field(ai, v); f.ok = false; f.note = 'too short'; out.push(f); break; } }
+    else { let j = text.indexOf('\x1d', i); if (j < 0) j = text.length; v = text.slice(i, j); i = j + 1; }
+    out.push(gs1Field(ai, v));
+  }
+  return out;
+}
+const looksGS1 = (text, sym) => /^\](?:d2|C1|Q3|e0|e1|e2)/.test(sym || '') || /^\(\d{2,4}\)/.test(text) || /\x1d/.test(text);
+function classify(t) {
+  if (/^https?:\/\//i.test(t)) return 'Web link';
+  if (/^WIFI:/i.test(t)) return 'Wi-Fi network';
+  if (/^BEGIN:VCARD/i.test(t) || /^MECARD:/i.test(t)) return 'Contact card';
+  if (/^BEGIN:V(EVENT|CALENDAR)/i.test(t)) return 'Calendar event';
+  if (/^mailto:/i.test(t)) return 'Email';
+  if (/^tel:/i.test(t)) return 'Phone number';
+  if (/^smsto?:/i.test(t)) return 'SMS';
+  if (/^geo:/i.test(t)) return 'Location';
+  if (/^otpauth:/i.test(t)) return 'One-time-password secret';
+  if (/^(upi|bitcoin|ethereum|lightning):/i.test(t)) return 'Payment request';
+  if (/^\d+$/.test(t)) return 'Numeric';
+  return 'Text';
+}
+function interpret(fmtKey, text, sym) {
+  const r = { checks: [], notes: [], country: null, gs1: null, kind: classify(text) };
+  const digits = /^\d+$/.test(text) ? text : null;
+  if (looksGS1(text, sym)) {
+    r.gs1 = parseGS1(text);
+    for (const f of r.gs1) if (f.note) r.checks.push({ ok: f.ok, label: 'AI ' + f.ai + ': ' + f.note });
+    r.kind = 'GS1 element string';
+  }
+  if (digits) {
+    let ean = null;
+    if (fmtKey === 'ean13' && digits.length === 13) ean = digits;
+    else if (fmtKey === 'upca' && digits.length === 12) ean = '0' + digits;
+    else if (fmtKey === 'ean8' && digits.length === 8) { r.checks.push({ ok: gtinValid(digits), label: 'EAN-8 check digit' }); r.country = gs1Country(digits.slice(0, 3)); }
+    else if (fmtKey === 'upce' && digits.length === 8) {
+      const a = upceToUpca(digits);
+      if (a) { r.checks.push({ ok: gtinValid(a), label: 'UPC-E check digit' }); r.notes.push('Expands to UPC-A ' + a); ean = '0' + a; }
+    } else if (fmtKey === 'itf' && digits.length === 14) {
+      r.checks.push({ ok: gtinValid(digits), label: 'GTIN-14 check digit', soft: true });
+    }
+    if (ean) {
+      r.checks.push({ ok: gtinValid(ean), label: (fmtKey === 'upca' ? 'UPC-A' : fmtKey === 'upce' ? 'UPC-E' : 'EAN-13') + ' check digit' });
+      r.country = gs1Country(ean.slice(0, 3));
+      if (/^97[89]/.test(ean)) { r.kind = 'Book (ISBN)'; r.notes.push('ISBN-13 ' + ean); const i10 = isbn13to10(ean); if (i10) r.notes.push('ISBN-10 ' + i10); r.country = null; }
+      else if (/^977/.test(ean)) { r.kind = 'Periodical (ISSN)'; const s = issnFromEan(ean); if (s) r.notes.push('ISSN ' + s); r.country = null; }
+      else r.kind = 'Retail product (GTIN)';
+    }
+  }
+  return r;
+}
+
+/* ---- image operations on Uint8ClampedArray grayscale ---- */
+function percentile(hist, total, p) { let c = 0; const t = total * p; for (let i = 0; i < 256; i++) { c += hist[i]; if (c >= t) return i; } return 255; }
+function stretchGray(g) {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < g.length; i++) hist[g[i]]++;
+  const lo = percentile(hist, g.length, 0.01), hi = percentile(hist, g.length, 0.99), med = percentile(hist, g.length, 0.5);
+  const span = Math.max(24, hi - lo);
+  let gamma = 1; const mid = (med - lo) / span;
+  if (mid > 0.02 && mid < 0.98) gamma = Math.min(2.2, Math.max(0.45, Math.log(0.5) / Math.log(mid)));
+  const lut = new Uint8ClampedArray(256);
+  for (let v = 0; v < 256; v++) { let x = (v - lo) / span; x = x < 0 ? 0 : x > 1 ? 1 : x; lut[v] = 255 * Math.pow(x, gamma); }
+  const out = new Uint8ClampedArray(g.length);
+  for (let i = 0; i < g.length; i++) out[i] = lut[g[i]];
+  return out;
+}
+function gammaGray(g, gamma) {
+  const lut = new Uint8ClampedArray(256);
+  for (let v = 0; v < 256; v++) lut[v] = 255 * Math.pow(v / 255, gamma);
+  const out = new Uint8ClampedArray(g.length);
+  for (let i = 0; i < g.length; i++) out[i] = lut[g[i]];
+  return out;
+}
+function boxBlur(src, w, h, r) {
+  const tmp = new Float32Array(w * h), out = new Uint8ClampedArray(w * h), d = 2 * r + 1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w; let sum = 0;
+    for (let k = -r; k <= r; k++) sum += src[row + Math.min(w - 1, Math.max(0, k))];
+    for (let x = 0; x < w; x++) { tmp[row + x] = sum / d; sum += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)]; }
+  }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let k = -r; k <= r; k++) sum += tmp[Math.min(h - 1, Math.max(0, k)) * w + x];
+    for (let y = 0; y < h; y++) { out[y * w + x] = sum / d; sum += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x]; }
+  }
+  return out;
+}
+function unsharp(g, w, h, amount, r) {
+  const b = boxBlur(g, w, h, r), out = new Uint8ClampedArray(g.length);
+  for (let i = 0; i < g.length; i++) out[i] = g[i] + amount * (g[i] - b[i]);
+  return out;
+}
+function integral(g, w, h, squared) {
+  const W = w + 1, I = new Float64Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let row = 0;
+    for (let x = 0; x < w; x++) { const v = g[y * w + x]; row += squared ? v * v : v; I[(y + 1) * W + x + 1] = I[y * W + x + 1] + row; }
+  }
+  return I;
+}
+function bradley(g, w, h, s, t) {
+  const I = integral(g, w, h, false), W = w + 1, out = new Uint8ClampedArray(w * h), r = s >> 1;
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(h - 1, y + r);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(w - 1, x + r), area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const sum = I[(y1 + 1) * W + x1 + 1] - I[y0 * W + x1 + 1] - I[(y1 + 1) * W + x0] + I[y0 * W + x0];
+      out[y * w + x] = g[y * w + x] * area <= sum * (1 - t) ? 0 : 255;
+    }
+  }
+  return out;
+}
+function lcn(g, w, h, s) {
+  const I = integral(g, w, h, false), I2 = integral(g, w, h, true), W = w + 1, out = new Uint8ClampedArray(w * h), r = s >> 1;
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(h - 1, y + r);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(w - 1, x + r), area = (x1 - x0 + 1) * (y1 - y0 + 1);
+      const a = (y1 + 1) * W + x1 + 1, b = y0 * W + x1 + 1, c = (y1 + 1) * W + x0, d = y0 * W + x0;
+      const mean = (I[a] - I[b] - I[c] + I[d]) / area, ex2 = (I2[a] - I2[b] - I2[c] + I2[d]) / area;
+      const sd = Math.sqrt(Math.max(0, ex2 - mean * mean));
+      out[y * w + x] = 128 + 70 * (g[y * w + x] - mean) / (sd + 10);
+    }
+  }
+  return out;
+}
+function median3(g, w, h) {
+  const out = new Uint8ClampedArray(g.length), v = new Uint8Array(9);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) { const yy = Math.min(h - 1, Math.max(0, y + dy)) * w; for (let dx = -1; dx <= 1; dx++) v[n++] = g[yy + Math.min(w - 1, Math.max(0, x + dx))]; }
+    for (let i = 1; i < 9; i++) { const t = v[i]; let j = i - 1; while (j >= 0 && v[j] > t) { v[j + 1] = v[j]; j--; } v[j + 1] = t; }
+    out[y * w + x] = v[4];
+  }
+  return out;
+}
+function averageFrames(frames) {
+  const n = frames.length, out = new Uint8ClampedArray(frames[0].length);
+  for (let i = 0; i < out.length; i++) { let s = 0; for (let k = 0; k < n; k++) s += frames[k][i]; out[i] = s / n; }
+  return out;
+}
+function meanLuma(g) { let s = 0, n = 0; for (let i = 0; i < g.length; i += 7) { s += g[i]; n++; } return n ? s / n : 0; }
+function laplacianVar(g, w, h) {
+  const x0 = (w * 0.25) | 0, x1 = (w * 0.75) | 0, y0 = (h * 0.25) | 0, y1 = (h * 0.75) | 0;
+  let s = 0, s2 = 0, n = 0;
+  for (let y = y0 + 1; y < y1 - 1; y += 2) for (let x = x0 + 1; x < x1 - 1; x += 2) {
+    const i = y * w + x, l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w];
+    s += l; s2 += l * l; n++;
+  }
+  if (!n) return 0;
+  const m = s / n; return s2 / n - m * m;
+}
+const grayToRGBA = (g) => { const u = new Uint32Array(g.length); for (let i = 0; i < g.length; i++) { const v = g[i]; u[i] = 0xff000000 | (v << 16) | (v << 8) | v; } return new Uint8ClampedArray(u.buffer); };
+const bytesToHex = (b) => Array.from(b || []).map(x => x.toString(16).padStart(2, '0')).join(' ');
+/* PURE:END */
+
+/* ===================== App ===================== */
+const $ = id => document.getElementById(id);
+const el = { stage: $('stage'), video: $('video'), ov: $('overlay'), hud: $('hud'), hint: $('hint'), camErr: $('camErr'), flash: $('flash'),
+  btnStart: $('btnStart'), btnStop: $('btnStop'), btnTorch: $('btnTorch'), selCam: $('selCam'), zoomBox: $('zoomBox'), zoom: $('zoom'), zoomVal: $('zoomVal'),
+  meter: $('meter'), enhLabel: $('enhLabel'), result: $('result'), btnCopy: $('btnCopy'), hist: $('hist'), histEmpty: $('histEmpty') };
+
+const DEFAULTS = { mode: 'verified', enh: 'auto', scan: 'single', multi: true, torch: true, still: true, sound: true, vibe: true, preset: 'all', formats: [] };
+let settings = Object.assign({}, DEFAULTS);
+try { Object.assign(settings, JSON.parse(localStorage.getItem('reticle.settings') || '{}')); } catch (e) {}
+const saveSettings = () => { try { localStorage.setItem('reticle.settings', JSON.stringify(settings)); } catch (e) {} };
+let history = [];
+try { history = JSON.parse(localStorage.getItem('reticle.history') || '[]'); } catch (e) {}
+const saveHistory = () => { try { localStorage.setItem('reticle.history', JSON.stringify(history.slice(0, 300))); } catch (e) {} };
+
+const ALL_FORMATS = ['EAN-13', 'EAN-8', 'UPC-A', 'UPC-E', 'Code128', 'Code39', 'Code93', 'ITF', 'Codabar', 'DataBar', 'DataBarExpanded', 'DataBarLimited',
+  'QRCode', 'MicroQRCode', 'rMQRCode', 'DataMatrix', 'Aztec', 'PDF417', 'MaxiCode', 'DXFilmEdge'];
+const PRESETS = {
+  all: [], retail: ['EAN-13', 'EAN-8', 'UPC-A', 'UPC-E', 'DataBar', 'DataBarExpanded', 'DataBarLimited'],
+  logistics: ['Code128', 'ITF', 'Code39', 'DataBar', 'DataBarExpanded', 'DataBarLimited', 'DataMatrix', 'QRCode', 'PDF417'],
+  '2d': ['QRCode', 'MicroQRCode', 'rMQRCode', 'DataMatrix', 'Aztec', 'PDF417', 'MaxiCode']
+};
+const NATIVE_NAMES = { 'EAN-13': 'ean_13', 'EAN-8': 'ean_8', 'UPC-A': 'upc_a', 'UPC-E': 'upc_e', Code128: 'code_128', Code39: 'code_39', Code93: 'code_93', ITF: 'itf', Codabar: 'codabar', QRCode: 'qr_code', DataMatrix: 'data_matrix', Aztec: 'aztec', PDF417: 'pdf417' };
+
+/* ---------- engines ---------- */
+let native = null, zxReady = false, zxFailed = false;
+const ZXV = '3.1.3';
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.async = true; s.onload = res; s.onerror = () => rej(new Error('load failed ' + src)); document.head.appendChild(s); }); }
+function setChip(id, cls, text) { const c = $(id); c.className = 'chip ' + cls; c.innerHTML = '<span class="dot"></span>' + text; }
+async function initEngines() {
+  if ('BarcodeDetector' in window) {
+    try { const f = await BarcodeDetector.getSupportedFormats(); if (f.length) { native = new BarcodeDetector({ formats: f }); setChip('chipNative', 'ok', 'Native: ' + f.length + ' formats'); } }
+    catch (e) {}
+  }
+  if (!native) setChip('chipNative', '', 'Native: not available');
+  const cands = [
+    { js: 'https://cdn.jsdelivr.net/npm/zxing-wasm@' + ZXV + '/dist/iife/reader/index.js', wasm: 'https://cdn.jsdelivr.net/npm/zxing-wasm@' + ZXV + '/dist/reader/zxing_reader.wasm' },
+    { js: 'https://unpkg.com/zxing-wasm@' + ZXV + '/dist/iife/reader/index.js', wasm: 'https://unpkg.com/zxing-wasm@' + ZXV + '/dist/reader/zxing_reader.wasm' }
+  ];
+  for (const c of cands) {
+    try {
+      if (!window.ZXingWASM) await loadScript(c.js);
+      await ZXingWASM.prepareZXingModule({ overrides: { locateFile: (path, prefix) => path.endsWith('.wasm') ? c.wasm : prefix + path }, fireImmediately: true });
+      await ZXingWASM.readBarcodes(new ImageData(16, 16), { formats: [] });
+      zxReady = true; setChip('chipZx', 'ok', 'ZXing WASM ' + ZXV + ' ready'); return;
+    } catch (e) { console.warn('ZXing load attempt failed', e); }
+  }
+  zxFailed = true;
+  setChip('chipZx', native ? 'warn' : 'bad', 'ZXing: offline');
+  if (!native) showErr('The decoder library could not be downloaded and this browser has no built-in barcode detector. Check your internet connection and reload the page.');
+}
+function zxFormats() { return settings.preset === 'all' ? [] : (settings.formats || []).slice(); }
+function selectedKeys() { return new Set(zxFormats().map(normFmt)); }
+function zxOpts(extra) {
+  return Object.assign({ formats: zxFormats(), tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: settings.multi ? 6 : 1, textMode: 'HRI' }, extra || {});
+}
+async function runZX(imageData, extra) {
+  if (!zxReady) return [];
+  try { return await ZXingWASM.readBarcodes(imageData, zxOpts(extra)); }
+  catch (e) { if (settings.preset !== 'all') { try { return await ZXingWASM.readBarcodes(imageData, zxOpts(Object.assign({ formats: [] }, extra))); } catch (e2) {} } return []; }
+}
+
+/* ---------- camera ---------- */
+let stream = null, track = null, caps = {}, trackSettings = {}, imageCapture = null, running = false, paused = false, torchOn = false, loopHandle = 0;
+function showErr(html) { el.camErr.innerHTML = html; el.camErr.classList.add('show'); }
+function clearErr() { el.camErr.classList.remove('show'); el.camErr.textContent = ''; }
+async function startCamera(deviceId) {
+  stopCamera(true); clearErr();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showErr('This page cannot reach the camera. Camera access needs a secure address: open it from <code>https://</code> or from <code>http://localhost</code>, not from a plain <code>http://</code> address. You can still use “Scan a photo”.');
+    return;
+  }
+  const sizes = [{ width: { ideal: 3840 }, height: { ideal: 2160 } }, { width: { ideal: 1920 }, height: { ideal: 1080 } }, {}];
+  let lastErr = null;
+  for (const s of sizes) {
+    try {
+      const v = Object.assign({}, deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } }, s, { frameRate: { ideal: 30 } });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: v });
+      break;
+    } catch (e) { lastErr = e; if (e.name === 'NotAllowedError' || e.name === 'SecurityError') break; }
+  }
+  if (!stream) {
+    const n = lastErr && lastErr.name;
+    showErr(n === 'NotAllowedError' ? 'Camera permission was denied. Allow camera access for this site in your browser settings, then press Start camera again. “Scan a photo” still works.'
+      : n === 'NotFoundError' ? 'No camera was found on this device. Use “Scan a photo” instead.' : 'The camera could not be started (' + (n || 'unknown error') + '). Another app may be using it.');
+    return;
+  }
+  track = stream.getVideoTracks()[0];
+  try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) { caps = {}; }
+  trackSettings = track.getSettings ? track.getSettings() : {};
+  const adv = [];
+  if (caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode: 'continuous' });
+  if (caps.exposureMode && caps.exposureMode.includes('continuous')) adv.push({ exposureMode: 'continuous' });
+  if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('continuous')) adv.push({ whiteBalanceMode: 'continuous' });
+  for (const a of adv) { try { await track.applyConstraints({ advanced: [a] }); } catch (e) {} }
+  imageCapture = ('ImageCapture' in window) ? new ImageCapture(track) : null;
+  el.video.srcObject = stream;
+  try { await el.video.play(); } catch (e) {}
+  await new Promise(r => { if (el.video.videoWidth) r(); else el.video.onloadedmetadata = r; });
+  trackSettings = track.getSettings ? track.getSettings() : trackSettings;
+  setupControls();
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+    if (devs.length > 1) {
+      el.selCam.innerHTML = devs.map((d, i) => '<option value="' + d.deviceId + '">' + (d.label || 'Camera ' + (i + 1)).replace(/[<>&]/g, '') + '</option>').join('');
+      const cur = trackSettings.deviceId; if (cur) el.selCam.value = cur;
+      el.selCam.hidden = false;
+    }
+  } catch (e) {}
+  el.stage.classList.remove('idle', 'paused'); el.btnStop.disabled = false;
+  running = true; paused = false; resetProgress(); sizeOverlay(); startLoop();
+}
+function stopCamera(silent) {
+  running = false; cancelLoop();
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; track = null; torchOn = false; el.video.srcObject = null;
+  el.stage.classList.add('idle'); el.stage.classList.remove('paused'); el.btnStop.disabled = true;
+  el.btnTorch.hidden = true; el.zoomBox.style.display = 'none'; el.hud.innerHTML = ''; el.hint.hidden = true;
+  setTier(0, 'idle');
+  clearOverlay();
+}
+function setupControls() {
+  el.btnTorch.hidden = !caps.torch; el.btnTorch.disabled = !caps.torch; el.btnTorch.setAttribute('aria-pressed', 'false');
+  if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+    el.zoom.min = caps.zoom.min; el.zoom.max = Math.min(caps.zoom.max, 8); el.zoom.step = caps.zoom.step || 0.1;
+    el.zoom.value = trackSettings.zoom || caps.zoom.min; el.zoomVal.textContent = (+el.zoom.value).toFixed(1) + '×'; el.zoomBox.style.display = 'flex';
+  } else el.zoomBox.style.display = 'none';
+}
+async function setTorch(on) {
+  if (!track || !caps.torch) return false;
+  try { await track.applyConstraints({ advanced: [{ torch: on }] }); torchOn = on; el.btnTorch.setAttribute('aria-pressed', String(on)); return true; } catch (e) { return false; }
+}
+async function setZoom(z) { if (!track || !caps.zoom) return; try { await track.applyConstraints({ advanced: [{ zoom: z }] }); el.zoom.value = z; el.zoomVal.textContent = (+z).toFixed(1) + '×'; } catch (e) {} }
+async function tapFocus(ev) {
+  if (!track || !caps.focusMode) return;
+  const r = el.stage.getBoundingClientRect(), v = contentRect();
+  const nx = (ev.clientX - r.left - v.x) / v.w, ny = (ev.clientY - r.top - v.y) / v.h;
+  if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
+  try {
+    const modes = caps.focusMode;
+    if (modes.includes('single-shot')) await track.applyConstraints({ advanced: [{ focusMode: 'single-shot', pointsOfInterest: [{ x: nx, y: ny }] }] });
+    else await track.applyConstraints({ advanced: [{ pointsOfInterest: [{ x: nx, y: ny }] }] });
+    setTimeout(() => { if (track && modes.includes('continuous')) track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); }, 2500);
+  } catch (e) {}
+}
+
+/* ---------- overlay ---------- */
+let overlayItems = [];
+const octx = el.ov.getContext('2d');
+function sizeOverlay() { const r = el.stage.getBoundingClientRect(), d = window.devicePixelRatio || 1; el.ov.width = Math.round(r.width * d); el.ov.height = Math.round(r.height * d); }
+function contentRect() {
+  const r = el.stage.getBoundingClientRect(), vw = el.video.videoWidth || 1, vh = el.video.videoHeight || 1, s = Math.min(r.width / vw, r.height / vh);
+  return { x: (r.width - vw * s) / 2, y: (r.height - vh * s) / 2, w: vw * s, h: vh * s };
+}
+function clearOverlay() { overlayItems = []; octx.clearRect(0, 0, el.ov.width, el.ov.height); }
+function addOverlay(pts, color, ms, label) { if (pts) overlayItems.push({ pts, color, until: performance.now() + ms, label }); }
+function drawOverlay() {
+  octx.clearRect(0, 0, el.ov.width, el.ov.height);
+  const now = performance.now(); overlayItems = overlayItems.filter(o => o.until > now);
+  if (!overlayItems.length) return;
+  const d = window.devicePixelRatio || 1, c = contentRect();
+  octx.save(); octx.scale(d, d); octx.lineWidth = 3; octx.lineJoin = 'round';
+  for (const o of overlayItems) {
+    octx.strokeStyle = o.color; octx.fillStyle = o.color + '33'; octx.beginPath();
+    o.pts.forEach((p, i) => { const x = c.x + p[0] * c.w, y = c.y + p[1] * c.h; i ? octx.lineTo(x, y) : octx.moveTo(x, y); });
+    octx.closePath(); octx.fill(); octx.stroke();
+    if (o.label) { const p = o.pts[0]; octx.fillStyle = o.color; octx.font = '600 12px IBM Plex Mono, monospace'; octx.fillText(o.label, c.x + p[0] * c.w, Math.max(14, c.y + p[1] * c.h - 6)); }
+  }
+  octx.restore();
+}
+(function raf() { drawOverlay(); requestAnimationFrame(raf); })();
+window.addEventListener('resize', sizeOverlay);
+
+/* ---------- processing state ---------- */
+const WORK_LONG = 1600;
+const wc = document.createElement('canvas'), wctx = wc.getContext('2d', { willReadFrequently: true });
+const cc = document.createElement('canvas'), cctx = cc.getContext('2d', { willReadFrequently: true });
+const ring = [];
+let frameId = 0, lastProgress = performance.now(), rot = 0, tileIdx = 0, lastStill = 0, lastAutoZoom = 0, darkSince = 0, fpsT = performance.now(), fpsN = 0, fps = 0;
+let metrics = { light: 0, sharp: 0 }, currentStrategy = '', tier = 0, votes = new Map(), lastSeen = new Map();
+function resetProgress() { lastProgress = performance.now(); votes.clear(); ring.length = 0; }
+function setTier(t, why) {
+  tier = t;
+  [...el.meter.children].forEach((c, i) => c.classList.toggle('on', running && i <= t));
+  el.enhLabel.textContent = 'Level ' + t + ' · ' + (why || '');
+}
+function hud() {
+  const w = el.video.videoWidth, h = el.video.videoHeight;
+  el.hud.innerHTML = '<span class="chip">' + w + '×' + h + '</span><span class="chip">' + fps + ' fps</span><span class="chip">Level ' + tier + '</span>' + (torchOn ? '<span class="chip">Light on</span>' : '');
+  $('gRes').textContent = Math.round(w * h / 1e5) / 10 + ' MP'; $('bRes').style.width = Math.min(100, w * h / (3840 * 2160) * 100) + '%';
+  $('gLight').textContent = Math.round(metrics.light); $('bLight').style.width = Math.min(100, metrics.light / 255 * 100) + '%';
+  $('gSharp').textContent = Math.round(metrics.sharp); $('bSharp').style.width = Math.min(100, metrics.sharp / 400 * 100) + '%';
+}
+function setHint(t) { if (t) { el.hint.textContent = t; el.hint.hidden = false; } else el.hint.hidden = true; }
+
+function startLoop() {
+  cancelLoop();
+  const tick = async () => {
+    if (!running) return;
+    if (!paused && el.video.readyState >= 2) { try { await processFrame(); } catch (e) { console.warn(e); } }
+    if (!running) return;
+    if (el.video.requestVideoFrameCallback) loopHandle = el.video.requestVideoFrameCallback(tick); else loopHandle = requestAnimationFrame(tick);
+  };
+  tick();
+}
+function cancelLoop() { loopHandle = 0; }
+
+function currentTier(now) {
+  if (settings.enh === 'off') return 0;
+  if (settings.enh === 'max') return 3;
+  const stuck = now - lastProgress;
+  let t = stuck < 900 ? 0 : stuck < 2200 ? 1 : stuck < 4200 ? 2 : 3;
+  const lowRes = (el.video.videoWidth || 0) < 1280;
+  if ((lowRes || metrics.light < 70 || metrics.light > 215) && t < 1) t = 1;
+  if (metrics.sharp < 25 && stuck > 600 && t < 2) t = 2;
+  return t;
+}
+const TIER_WHY = ['raw frames', 'contrast and sharpening', 'local contrast, thresholds, zoomed crops', 'full rescue: stacking, tiles, denoise, still photo'];
+
+async function processFrame() {
+  const now = performance.now(); fpsN++;
+  if (now - fpsT > 1000) { fps = fpsN; fpsN = 0; fpsT = now; hud(); }
+  const vw = el.video.videoWidth, vh = el.video.videoHeight; if (!vw) return;
+  const sc = Math.min(1, WORK_LONG / Math.max(vw, vh)), ww = Math.round(vw * sc), wh = Math.round(vh * sc);
+  if (wc.width !== ww || wc.height !== wh) { wc.width = ww; wc.height = wh; ring.length = 0; }
+  wctx.drawImage(el.video, 0, 0, ww, wh);
+  const imgData = wctx.getImageData(0, 0, ww, wh), d = imgData.data, gray = new Uint8ClampedArray(ww * wh);
+  for (let i = 0, j = 0; j < gray.length; i += 4, j++) gray[j] = (d[i] * 77 + d[i + 1] * 150 + d[i + 2] * 29) >> 8;
+  ring.push(gray); if (ring.length > 5) ring.shift();
+  frameId++;
+  if (frameId % 4 === 1) {
+    metrics.light = meanLuma(gray); metrics.sharp = laplacianVar(gray, ww, wh);
+    autoAssist(now);
+  }
+  const t = currentTier(now);
+  if (t !== tier) setTier(t, TIER_WHY[t]);
+  const ctx = { vw, vh, ww, wh, imgData, gray, frameId, now };
+  const cands = [];
+  const normW = (x, y) => [x / ww, y / wh];
+  // Native detector on the raw frame: cheap and independent of ZXing.
+  if (native) { try { const r = await native.detect(wc); for (const b of r) cands.push(fromNative(b, ww, wh)); } catch (e) {} }
+  const pool = strategies.filter(s => s.tier <= t && (!s.when || s.when(ctx)));
+  const budget = t === 0 ? 1 : t === 1 ? 2 : 3, start = performance.now();
+  for (let k = 0; k < Math.min(budget, pool.length); k++) {
+    const s = pool[(rot + k) % pool.length]; currentStrategy = s.name;
+    try { const out = await s.run(ctx); for (const c of out) { c.strategy = s.id; cands.push(c); } } catch (e) { console.warn(s.id, e); }
+    if (performance.now() - start > 220) break;
+  }
+  rot = (rot + budget) % Math.max(1, pool.length);
+  if (t > 0) el.enhLabel.textContent = 'Level ' + t + ' · ' + currentStrategy;
+  handleCandidates(cands, frameId);
+}
+
+function fromNative(b, ww, wh) {
+  const key = normFmt(b.format);
+  return { engine: 'native', strategy: 'native', fmt: key, text: b.rawValue, bytes: null, sym: '', pts: (b.cornerPoints || []).map(p => [p.x / ww, p.y / wh]) };
+}
+function fromZX(r, toNorm) {
+  const p = r.position, pts = p && toNorm ? [p.topLeft, p.topRight, p.bottomRight, p.bottomLeft].map(q => toNorm(q.x, q.y)) : null;
+  return { engine: 'zxing', fmt: normFmt(r.format), text: r.text, bytes: r.bytes ? Array.from(r.bytes) : null, sym: r.symbologyIdentifier || '', pts };
+}
+const rgbaOf = (g, w, h) => new ImageData(grayToRGBA(g), w, h);
+async function zxGray(g, w, h, toNorm, extra) { return (await runZX(rgbaOf(g, w, h), extra)).map(r => fromZX(r, toNorm)); }
+function cropVideo(rect, long) {
+  const sc = long / Math.max(rect.w, rect.h), w = Math.max(16, Math.round(rect.w * sc)), h = Math.max(16, Math.round(rect.h * sc));
+  cc.width = w; cc.height = h; cctx.imageSmoothingEnabled = true; cctx.imageSmoothingQuality = 'high';
+  cctx.drawImage(el.video, rect.x, rect.y, rect.w, rect.h, 0, 0, w, h);
+  const id = cctx.getImageData(0, 0, w, h), g = new Uint8ClampedArray(w * h);
+  for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (id.data[i] * 77 + id.data[i + 1] * 150 + id.data[i + 2] * 29) >> 8;
+  return { g, w, h };
+}
+const cropMap = (rect, w, h, vw, vh) => (x, y) => [(rect.x + x * rect.w / w) / vw, (rect.y + y * rect.h / h) / vh];
+
+const strategies = [
+  { id: 'raw', name: 'Original frame', tier: 0, run: async c => (await runZX(c.imgData)).map(r => fromZX(r, (x, y) => [x / c.ww, y / c.wh])) },
+  { id: 'contrast', name: 'Contrast and gamma', tier: 1, run: c => zxGray(stretchGray(c.gray), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh]) },
+  { id: 'sharpen', name: 'Sharpen', tier: 1, run: c => zxGray(unsharp(stretchGray(c.gray), c.ww, c.wh, 1.6, 2), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh]) },
+  { id: 'lcn', name: 'Local contrast', tier: 2, run: c => zxGray(lcn(c.gray, c.ww, c.wh, Math.max(15, c.ww >> 4)), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh]) },
+  { id: 'bradley', name: 'Adaptive threshold', tier: 2, run: c => zxGray(bradley(unsharp(c.gray, c.ww, c.wh, 1, 1), c.ww, c.wh, Math.max(15, c.ww >> 3), 0.12), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh], { binarizer: 'FixedThreshold' }) },
+  { id: 'lift', name: 'Shadow / highlight repair', tier: 2, when: () => metrics.light < 95 || metrics.light > 190,
+    run: c => zxGray(stretchGray(gammaGray(c.gray, metrics.light < 95 ? 0.5 : 1.8)), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh]) },
+  { id: 'center2x', name: 'Zoomed centre crop', tier: 2, run: async c => {
+      const rect = { x: c.vw * 0.2, y: c.vh * 0.2, w: c.vw * 0.6, h: c.vh * 0.6 }, k = cropVideo(rect, 1400);
+      return zxGray(unsharp(stretchGray(k.g), k.w, k.h, 1.2, 2), k.w, k.h, cropMap(rect, k.w, k.h, c.vw, c.vh)); } },
+  { id: 'stack', name: 'Multi-frame noise averaging', tier: 3, when: () => ring.length >= 4,
+    run: c => { const same = ring.filter(g => g.length === c.gray.length).slice(-4); return zxGray(unsharp(stretchGray(averageFrames(same)), c.ww, c.wh, 1.4, 2), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh], { tryDenoise: true }); } },
+  { id: 'tiles', name: 'Full-resolution tile scan', tier: 3, run: async c => {
+      const n = 3, i = tileIdx++ % (n * n), cx = i % n, cy = (i / n) | 0, tw = c.vw * 0.5, th = c.vh * 0.5;
+      const rect = { x: cx * (c.vw - tw) / (n - 1), y: cy * (c.vh - th) / (n - 1), w: tw, h: th }, k = cropVideo(rect, 1300);
+      return zxGray(stretchGray(k.g), k.w, k.h, cropMap(rect, k.w, k.h, c.vw, c.vh)); } },
+  { id: 'deblur', name: 'Strong deblur', tier: 3, run: c => zxGray(unsharp(stretchGray(c.gray), c.ww, c.wh, 3, 3), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh]) },
+  { id: 'denoise', name: 'Median denoise', tier: 3, run: async c => {
+      const rect = { x: c.vw * 0.15, y: c.vh * 0.15, w: c.vw * 0.7, h: c.vh * 0.7 }, k = cropVideo(rect, 1000);
+      return zxGray(unsharp(median3(stretchGray(k.g), k.w, k.h), k.w, k.h, 1.5, 2), k.w, k.h, cropMap(rect, k.w, k.h, c.vw, c.vh)); } },
+  { id: 'half', name: 'Half-scale pass', tier: 3, run: async c => {
+      const w = Math.max(32, c.ww >> 1), h = Math.max(32, c.wh >> 1); cc.width = w; cc.height = h; cctx.imageSmoothingQuality = 'high'; cctx.drawImage(wc, 0, 0, w, h);
+      const id = cctx.getImageData(0, 0, w, h), g = new Uint8ClampedArray(w * h);
+      for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (id.data[i] * 77 + id.data[i + 1] * 150 + id.data[i + 2] * 29) >> 8;
+      return zxGray(stretchGray(g), w, h, (x, y) => [x / w, y / h]); } },
+  { id: 'still', name: 'High-resolution still photo', tier: 3, when: () => settings.still && imageCapture && performance.now() - lastStill > 3500,
+    run: async () => {
+      lastStill = performance.now();
+      const blob = await imageCapture.takePhoto(); const bmp = await createImageBitmap(blob);
+      const out = await decodeBitmapPasses(bmp, ['raw', 'contrast'], null); out.forEach(q => { q.pts = null; }); return out; } }
+];
+
+/* Decode a still bitmap with a few passes; used by the photo path and by the still-photo rescue. */
+async function decodeBitmapPasses(bmp, passes, toNormFull) {
+  const long = Math.max(bmp.width, bmp.height), sc = Math.min(1, 2600 / long), w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(bmp, 0, 0, w, h);
+  const id = x.getImageData(0, 0, w, h), g = new Uint8ClampedArray(w * h);
+  for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (id.data[i] * 77 + id.data[i + 1] * 150 + id.data[i + 2] * 29) >> 8;
+  const res = [], nm = toNormFull || ((px, py) => [px / w, py / h]);
+  for (const p of passes) {
+    let r = [];
+    if (p === 'raw') r = (await runZX(id)).map(q => fromZX(q, nm));
+    else if (p === 'contrast') r = await zxGray(stretchGray(g), w, h, nm);
+    for (const q of r) { q.strategy = 'still-' + p; res.push(q); }
+  }
+  return res;
+}
+
+/* ---------- camera auto-assist (light, zoom) ---------- */
+function autoAssist(now) {
+  const stuck = now - lastProgress;
+  if (metrics.light < 45) { if (!darkSince) darkSince = now; } else darkSince = 0;
+  if (settings.torch && caps.torch && !torchOn && darkSince && now - darkSince > 1500) setTorch(true);
+  let hint = '';
+  if (stuck > 1500 && !paused) {
+    if (metrics.light < 60) hint = 'Too dark. Add light or move closer to a lamp.';
+    else if (metrics.light > 215) hint = 'Too bright or glare. Tilt the code slightly.';
+    else if (metrics.sharp < 25) hint = 'Blurry. Hold steady and move back a little so the camera can focus.';
+    else if (stuck > 3000) hint = caps.zoom ? 'Fill about half the frame with the code. Use zoom if it is small.' : 'Fill about half the frame with the code.';
+  }
+  if (!hint && votes.size && !paused) hint = 'Reading… confirming';
+  setHint(hint);
+  if (tier >= 3 && caps.zoom && settings.enh !== 'off' && now - lastAutoZoom > 2500 && stuck > 5000 && !paused) {
+    lastAutoZoom = now; const z = +el.zoom.value, max = +el.zoom.max, min = +el.zoom.min;
+    setZoom(z >= Math.min(max, min * 3) - 0.01 ? min : Math.min(max, z + (max - min) * 0.25));
+  }
+}
+
+/* ---------- voting / acceptance ---------- */
+const voteKey = c => c.fmt + '|' + String(c.text || '').replace(/[\x1d\s()]/g, '');
+function needFor(c) {
+  const weak = !fmtInfo(c.fmt).strong, m = settings.mode;
+  if (m === 'fast') return weak ? 2 : 1;
+  if (m === 'verified') return weak ? 3 : 2;
+  return weak ? 4 : 3;
+}
+function handleCandidates(cands, fid, stillMode) {
+  const now = performance.now(), sel = selectedKeys();
+  for (const [k, v] of votes) if (now - v.last > 2500) votes.delete(k);
+  for (const c of cands) {
+    if (!c.text || (sel.size && !sel.has(c.fmt))) continue;
+    const k = voteKey(c); let v = votes.get(k);
+    if (!v) { v = { frames: new Set(), engines: new Set(), strategies: new Set(), first: now, last: now, best: c }; votes.set(k, v); }
+    v.frames.add(fid); v.engines.add(c.engine); v.strategies.add(c.strategy); v.last = now;
+    if (c.engine === 'zxing' && (v.best.engine !== 'zxing' || (!v.best.pts && c.pts))) v.best = c;
+    if (!v.best.pts && c.pts) v.best = Object.assign({}, v.best, { pts: c.pts });
+    const have = v.frames.size + (v.engines.size > 1 && settings.mode !== 'max' ? 1 : 0), need = needFor(c);
+    if (have >= need) { if (accept(v.best, v, need)) votes.delete(k); }
+    else if (v.best.pts) addOverlay(v.best.pts, '#f5b335', 400, have + '/' + need);
+  }
+}
+function accept(c, v, need) {
+  const now = Date.now(), k = voteKey(c), prev = lastSeen.get(k);
+  lastSeen.set(k, now);
+  if (prev && now - prev < 2500 && settings.scan === 'continuous') { return true; }
+  const info = interpret(c.fmt, c.text, c.sym);
+  const rec = { id: now + '-' + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), fmt: c.fmt, fmtLabel: fmtInfo(c.fmt).label, text: c.text,
+    bytes: c.bytes, sym: c.sym, engine: Array.from(v.engines).join('+'), reads: v.frames.size, strategy: Array.from(v.strategies).filter(s => s !== 'native').join(', ') || 'native',
+    tier, info };
+  history.unshift(rec); saveHistory(); renderResult(rec); renderHistory();
+  if (c.pts) addOverlay(c.pts, '#2fd27a', 1600);
+  el.flash.classList.add('on'); setTimeout(() => el.flash.classList.remove('on'), 150);
+  feedback();
+  lastProgress = performance.now();
+  if (settings.scan === 'single' && running) { paused = true; el.stage.classList.add('paused'); setHint(''); }
+  return true;
+}
+let actx = null;
+function feedback() {
+  if (settings.vibe && navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
+  if (!settings.sound) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = 1040; g.gain.value = 0.08;
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.09);
+  } catch (e) {}
+}
+
+/* ---------- result rendering ---------- */
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let shownRec = null;
+const ENCODINGS = ['utf-8', 'shift_jis', 'gb18030', 'big5', 'euc-kr', 'euc-jp', 'windows-1251', 'windows-1252', 'windows-1250', 'windows-1253', 'windows-1254', 'windows-1255', 'windows-1256', 'windows-1257', 'windows-874', 'iso-8859-2', 'iso-8859-15'];
+function renderResult(rec) {
+  shownRec = rec; el.btnCopy.hidden = false;
+  const i = rec.info, badges = [];
+  badges.push('<span class="chip">' + esc(rec.fmtLabel) + '</span>');
+  badges.push('<span class="chip">' + esc(i.kind) + '</span>');
+  for (const c of i.checks) badges.push('<span class="chip ' + (c.ok ? 'ok' : (c.soft ? 'warn' : 'bad')) + '">' + (c.ok ? '✓ ' : '✗ ') + esc(c.label) + '</span>');
+  badges.push('<span class="chip ok">' + rec.reads + ' matching read' + (rec.reads > 1 ? 's' : '') + (rec.engine.includes('+') ? ' · 2 engines' : '') + '</span>');
+  let h = '<div class="badges">' + badges.join('') + '</div><div class="value" id="valText">' + esc(rec.text) + '</div>';
+  if (/^https?:\/\//i.test(rec.text)) h += '<p class="note">Check the address before opening. <a href="' + esc(rec.text) + '" target="_blank" rel="noopener noreferrer">Open link</a></p>';
+  const kv = [];
+  if (i.country) kv.push(['Issued by', i.country + ' (GS1 prefix, not necessarily where it was made)']);
+  for (const n of i.notes) kv.push(['Note', n]);
+  kv.push(['Read with', rec.engine + (rec.tier ? ' · level ' + rec.tier + ' (' + rec.strategy + ')' : '')]);
+  h += '<dl class="kv">' + kv.map(p => '<dt>' + esc(p[0]) + '</dt><dd>' + esc(p[1]) + '</dd>').join('') + '</dl>';
+  if (i.gs1 && i.gs1.length) h += '<div class="tablewrap"><table class="fields"><thead><tr><th>AI</th><th>Field</th><th>Value</th></tr></thead><tbody>' +
+    i.gs1.map(f => '<tr><td>' + esc(f.ai) + '</td><td>' + esc(f.name) + '</td><td>' + esc(f.pretty) + (f.note ? ' <span style="color:var(--' + (f.ok ? 'ok' : 'bad') + ')">· ' + esc(f.note) + '</span>' : '') + '</td></tr>').join('') + '</tbody></table></div>';
+  if (rec.bytes && rec.bytes.length) {
+    h += '<details><summary>Raw bytes and text encoding</summary><div class="row" style="margin-top:8px"><label for="selEnc" class="note">Show text as</label><select id="selEnc">' +
+      ENCODINGS.map(e => '<option value="' + e + '">' + e + '</option>').join('') + '</select></div><pre class="hex">' + esc(bytesToHex(rec.bytes)) + '</pre></details>';
+  }
+  el.result.innerHTML = h;
+  const se = $('selEnc');
+  if (se) se.addEventListener('change', () => { try { $('valText').textContent = new TextDecoder(se.value).decode(new Uint8Array(rec.bytes)); } catch (e) { $('valText').textContent = rec.text; } });
+}
+function renderHistory() {
+  el.histEmpty.hidden = history.length > 0;
+  el.hist.innerHTML = history.slice(0, 50).map((r, i) => '<li data-i="' + i + '"><span class="t">' + esc(r.text.length > 90 ? r.text.slice(0, 90) + '…' : r.text) + '</span><span class="m">' + esc(r.fmtLabel) + ' · ' +
+    new Date(r.time).toLocaleTimeString() + '</span><button class="btn sm x" data-copy="' + i + '">Copy</button></li>').join('');
+}
+el.hist.addEventListener('click', e => {
+  const b = e.target.closest('[data-copy]'), li = e.target.closest('li'); if (!li) return;
+  const r = history[+li.dataset.i]; if (!r) return;
+  if (b) copyText(r.text, b); else renderResult(r);
+});
+async function copyText(t, btn) {
+  try { await navigator.clipboard.writeText(t); } catch (e) { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e2) {} ta.remove(); }
+  if (btn) { const o = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => btn.textContent = o, 1200); }
+}
+el.btnCopy.addEventListener('click', () => { if (shownRec) copyText($('valText') ? $('valText').textContent : shownRec.text, el.btnCopy); });
+
+function download(name, type, data) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+$('btnJson').addEventListener('click', () => download('reticle-scans.json', 'application/json', JSON.stringify(history.map(r => ({ time: r.time, format: r.fmtLabel, text: r.text, kind: r.info.kind, checks: r.info.checks, gs1: r.info.gs1 })), null, 2)));
+$('btnCsv').addEventListener('click', () => {
+  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  download('reticle-scans.csv', 'text/csv', '﻿time,format,text,kind,checks\n' + history.map(r => [r.time, r.fmtLabel, r.text, r.info.kind, r.info.checks.map(c => (c.ok ? 'ok:' : 'FAIL:') + c.label).join('; ')].map(q).join(',')).join('\n'));
+});
+$('btnClear').addEventListener('click', () => { history = []; saveHistory(); renderHistory(); });
+
+/* ---------- still image scanning with the full rescue ladder ---------- */
+const still = $('still'), stillLog = $('stillLog');
+async function scanFile(file) {
+  if (!file) return; stillLog.textContent = 'Reading image…'; still.hidden = false;
+  let bmp; try { bmp = await createImageBitmap(file); } catch (e) { stillLog.textContent = 'This file could not be read as an image.'; return; }
+  const long = Math.max(bmp.width, bmp.height), sc = Math.min(1, 3000 / long), W = Math.round(bmp.width * sc), H = Math.round(bmp.height * sc);
+  still.width = W; still.height = H; const sx = still.getContext('2d', { willReadFrequently: true }); sx.drawImage(bmp, 0, 0, W, H);
+  const id = sx.getImageData(0, 0, W, H), g = new Uint8ClampedArray(W * H);
+  for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (id.data[i] * 77 + id.data[i + 1] * 150 + id.data[i + 2] * 29) >> 8;
+  if (!zxReady && !native) { stillLog.textContent = 'No decoder is available. Check your connection and reload.'; return; }
+  const nm = (x, y) => [x / W, y / H], found = new Map(), tried = [];
+  const cropGray = (fx, fy, fw, fh, long) => { const rx = Math.round(fx * W), ry = Math.round(fy * H), rw = Math.round(fw * W), rh = Math.round(fh * H);
+    const s = Math.min(2, long / Math.max(rw, rh)), w = Math.round(rw * s), h = Math.round(rh * s); const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true }); x.imageSmoothingQuality = 'high'; x.drawImage(still, rx, ry, rw, rh, 0, 0, w, h);
+    const d = x.getImageData(0, 0, w, h), gg = new Uint8ClampedArray(w * h); for (let i = 0, j = 0; j < gg.length; i += 4, j++) gg[j] = (d.data[i] * 77 + d.data[i + 1] * 150 + d.data[i + 2] * 29) >> 8;
+    return { g: gg, w, h, map: (px, py) => [(rx + px / s) / W, (ry + py / s) / H] }; };
+  const passes = [
+    ['Original', async () => (await runZX(id)).map(r => fromZX(r, nm))],
+    ['Native detector', async () => { if (!native) return []; const r = await native.detect(still); return r.map(b => fromNative(b, W, H)); }],
+    ['Contrast and gamma', () => zxGray(stretchGray(g), W, H, nm)],
+    ['Sharpen', () => zxGray(unsharp(stretchGray(g), W, H, 1.8, 2), W, H, nm)],
+    ['Local contrast', () => zxGray(lcn(g, W, H, Math.max(15, W >> 4)), W, H, nm)],
+    ['Adaptive threshold', () => zxGray(bradley(unsharp(g, W, H, 1, 1), W, H, Math.max(15, W >> 3), 0.12), W, H, nm, { binarizer: 'FixedThreshold' })],
+    ['Shadow lift', () => zxGray(stretchGray(gammaGray(g, 0.5)), W, H, nm)],
+    ['Highlight repair', () => zxGray(stretchGray(gammaGray(g, 1.8)), W, H, nm)],
+    ['Strong deblur', () => zxGray(unsharp(stretchGray(g), W, H, 3, 3), W, H, nm)]
+  ];
+  for (let n = 0; n < 2; n++) for (let m = 0; m < 2; m++) passes.push(['Tile ' + (n * 2 + m + 1) + '/4', () => { const k = cropGray(n * 0.4, m * 0.4, 0.6, 0.6, 2000); return zxGray(unsharp(stretchGray(k.g), k.w, k.h, 1.4, 2), k.w, k.h, k.map); }]);
+  passes.push(['Centre ×2', () => { const k = cropGray(0.25, 0.25, 0.5, 0.5, 2400); return zxGray(unsharp(stretchGray(k.g), k.w, k.h, 1.4, 2), k.w, k.h, k.map); }]);
+  passes.push(['Half scale', () => { const k = cropGray(0, 0, 1, 1, Math.max(W, H) / 2); return zxGray(stretchGray(k.g), k.w, k.h, k.map); }]);
+  passes.push(['Median denoise', () => zxGray(unsharp(median3(stretchGray(g), W, H), W, H, 1.5, 2), W, H, nm, { tryDenoise: true })]);
+  let pid = 0; const sel = selectedKeys();
+  for (const [name, fn] of passes) {
+    pid++; stillLog.textContent = 'Pass ' + pid + '/' + passes.length + ': ' + name + '…'; await new Promise(r => setTimeout(r, 0));
+    let out = []; try { out = await fn(); } catch (e) {}
+    tried.push(name);
+    for (const c of out) {
+      if (!c.text || (sel.size && !sel.has(c.fmt))) continue;
+      c.strategy = name; const k = voteKey(c); let v = found.get(k);
+      if (!v) { v = { passes: new Set(), engines: new Set(), best: c }; found.set(k, v); }
+      v.passes.add(pid); v.engines.add(c.engine); if (c.engine === 'zxing' && (!v.best.pts || v.best.engine !== 'zxing')) v.best = c;
+    }
+    const ok = [...found.values()].filter(v => { const strong = fmtInfo(v.best.fmt).strong; const need = settings.mode === 'max' ? 2 : (strong ? 1 : 2); return v.passes.size + (v.engines.size > 1 ? 1 : 0) >= need; });
+    if (ok.length && (!settings.multi || pid >= 3)) { finishStill(ok, tried, found); return; }
+  }
+  const ok = [...found.values()].filter(v => v.passes.size >= 2 || fmtInfo(v.best.fmt).strong && settings.mode === 'fast');
+  if (ok.length) finishStill(ok, tried, found);
+  else stillLog.textContent = 'No code could be read after ' + passes.length + ' enhancement passes. Try a closer, sharper photo with the whole code and its quiet zone (the blank margin) in view.';
+}
+function finishStill(list, tried, found) {
+  const sx = still.getContext('2d'); let first = null;
+  for (const v of list) {
+    const c = v.best, info = interpret(c.fmt, c.text, c.sym);
+    const rec = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), fmt: c.fmt, fmtLabel: fmtInfo(c.fmt).label, text: c.text, bytes: c.bytes, sym: c.sym,
+      engine: Array.from(v.engines).join('+'), reads: v.passes.size, strategy: 'photo: ' + c.strategy, tier: 0, info };
+    history.unshift(rec); if (!first) first = rec;
+    if (c.pts) { sx.strokeStyle = '#2fd27a'; sx.lineWidth = Math.max(3, still.width / 250); sx.beginPath(); c.pts.forEach((p, i) => i ? sx.lineTo(p[0] * still.width, p[1] * still.height) : sx.moveTo(p[0] * still.width, p[1] * still.height)); sx.closePath(); sx.stroke(); }
+  }
+  saveHistory(); renderHistory(); renderResult(first); feedback();
+  stillLog.textContent = list.length + ' code' + (list.length > 1 ? 's' : '') + ' read after ' + tried.length + ' pass' + (tried.length > 1 ? 'es' : '') + ' (last: ' + tried[tried.length - 1] + ').';
+}
+const drop = $('drop');
+$('file').addEventListener('change', e => { scanFile(e.target.files[0]); e.target.value = ''; });
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => scanFile(e.dataTransfer.files[0]));
+window.addEventListener('paste', e => { const f = [...(e.clipboardData ? e.clipboardData.files : [])][0]; if (f) scanFile(f); });
+
+/* ---------- settings UI ---------- */
+function buildSettings() {
+  $('selMode').value = settings.mode; $('selEnh').value = settings.enh; $('selScan').value = settings.scan; $('selPreset').value = settings.preset;
+  $('optMulti').checked = settings.multi; $('optTorch').checked = settings.torch; $('optStill').checked = settings.still; $('optSound').checked = settings.sound; $('optVibe').checked = settings.vibe;
+  const fc = $('fmtChecks'); fc.innerHTML = ALL_FORMATS.map(f => '<label><input type="checkbox" value="' + f + '">' + f + '</label>').join('');
+  syncFormatChecks(); fc.style.display = settings.preset === 'all' ? 'none' : 'flex';
+}
+function syncFormatChecks() { const set = new Set(settings.preset === 'all' ? ALL_FORMATS : settings.formats); $('fmtChecks').querySelectorAll('input').forEach(i => i.checked = set.has(i.value)); }
+[['selMode', 'mode'], ['selEnh', 'enh'], ['selScan', 'scan']].forEach(([id, k]) => $(id).addEventListener('change', e => { settings[k] = e.target.value; saveSettings(); resetProgress(); if (k === 'scan' && settings.scan === 'continuous' && paused) resume(); }));
+[['optMulti', 'multi'], ['optTorch', 'torch'], ['optStill', 'still'], ['optSound', 'sound'], ['optVibe', 'vibe']].forEach(([id, k]) => $(id).addEventListener('change', e => { settings[k] = e.target.checked; saveSettings(); }));
+$('selPreset').addEventListener('change', e => {
+  settings.preset = e.target.value;
+  if (settings.preset !== 'custom' && settings.preset !== 'all') settings.formats = PRESETS[settings.preset].slice();
+  if (settings.preset === 'custom' && !settings.formats.length) settings.formats = ALL_FORMATS.slice();
+  $('fmtChecks').style.display = settings.preset === 'all' ? 'none' : 'flex'; syncFormatChecks(); saveSettings(); resetProgress();
+});
+$('fmtChecks').addEventListener('change', () => {
+  settings.formats = [...$('fmtChecks').querySelectorAll('input:checked')].map(i => i.value); settings.preset = 'custom'; $('selPreset').value = 'custom';
+  if (!settings.formats.length) { settings.preset = 'all'; $('selPreset').value = 'all'; $('fmtChecks').style.display = 'none'; }
+  saveSettings(); resetProgress();
+});
+
+/* ---------- controls ---------- */
+function resume() { paused = false; el.stage.classList.remove('paused'); resetProgress(); clearOverlay(); }
+el.btnStart.addEventListener('click', () => startCamera());
+el.btnStop.addEventListener('click', () => stopCamera());
+$('btnResume').addEventListener('click', resume);
+el.btnTorch.addEventListener('click', () => setTorch(!torchOn));
+el.zoom.addEventListener('input', () => setZoom(+el.zoom.value));
+el.selCam.addEventListener('change', () => startCamera(el.selCam.value));
+el.stage.addEventListener('click', e => { if (running && !paused && !e.target.closest('button')) tapFocus(e); });
+document.addEventListener('keydown', e => { if (e.code === 'Space' && paused && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); resume(); } });
+document.addEventListener('visibilitychange', () => { if (document.hidden && running) { paused = paused || false; } });
+
+buildSettings(); renderHistory(); setTier(0, 'idle'); initEngines();
+</script>
+</body>
+</html>
