@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<title>Reticle</title>
+<title>Reticle 2.0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -131,6 +131,7 @@ table.fields td:last-child { font-family: var(--mono); overflow-wrap: anywhere; 
 
 .drop { border: 1.5px dashed var(--line); border-radius: 10px; padding: 18px; text-align: center; color: var(--muted); }
 .drop.over { border-color: var(--accent); background: var(--surface-2); }
+.drop canvas[hidden] { display: none; }
 .drop canvas { max-width: 100%; height: auto; margin-top: 12px; border-radius: 8px; display: block; margin-inline: auto; }
 .log { font: 12px/1.6 var(--mono); color: var(--muted); margin-top: 8px; }
 .settings { display: grid; gap: 14px; }
@@ -157,6 +158,7 @@ table.fields td:last-child { font-family: var(--mono); overflow-wrap: anywhere; 
     <div class="eng" id="engines" aria-live="polite">
       <span class="chip" id="chipZx"><span class="dot"></span>ZXing: loading</span>
       <span class="chip" id="chipNative"><span class="dot"></span>Native: checking</span>
+      <span class="chip" id="chipTest"><span class="dot"></span>Self-test: waiting</span>
     </div>
   </header>
 
@@ -172,7 +174,7 @@ table.fields td:last-child { font-family: var(--mono); overflow-wrap: anywhere; 
           <div class="resume"><button class="btn primary" id="btnResume">Scan next</button></div>
           <div class="idle-msg">
             <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#c5ccd6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M7 12h10"/></svg>
-            <p>Point the camera at any barcode, QR code, Data Matrix or product identifier. Weak cameras are boosted automatically.</p>
+            <p id="idleMsg">Point the camera at any barcode, QR code, Data Matrix or product identifier. Weak cameras are boosted automatically.</p>
             <button class="btn primary" id="btnStart">Start camera</button>
           </div>
           <div class="flash" id="flash"></div>
@@ -198,6 +200,7 @@ table.fields td:last-child { font-family: var(--mono); overflow-wrap: anywhere; 
           <div class="gauge">Sharpness<b id="gSharp">–</b><div class="track"><i id="bSharp"></i></div></div>
           <div class="gauge">Resolution<b id="gRes">–</b><div class="track"><i id="bRes"></i></div></div>
         </div>
+        <details><summary>Diagnostics</summary><pre class="hex" id="diag">No frames yet.</pre></details>
         <p class="note" style="margin-top:12px">When nothing reads, the scanner escalates on its own: contrast and gamma correction, sharpening, local-contrast and adaptive thresholds, zoomed crops of the centre and tiles at full sensor resolution, multi-frame noise averaging, denoise, and a high-resolution still photo where the browser allows it. Every result must be confirmed by several reads before it is accepted.</p>
       </section>
     </div>
@@ -240,13 +243,18 @@ table.fields td:last-child { font-family: var(--mono); overflow-wrap: anywhere; 
               <option value="max">Always maximum</option>
               <option value="off">Off: raw frames only</option>
             </select></div>
+          <div class="row"><label class="t" for="selStills">Full-sensor photos</label>
+            <select id="selStills">
+              <option value="auto" selected>Auto: when a code will not read</option>
+              <option value="always">Always: highest quality, slower, may click</option>
+              <option value="off">Never</option>
+            </select></div>
           <div class="row"><label class="t" for="selScan">After a scan</label>
             <select id="selScan"><option value="single" selected>Pause and wait</option><option value="continuous">Keep scanning</option></select></div>
           <div class="row"><label class="t">Options</label>
             <div class="checks">
               <label><input type="checkbox" id="optMulti" checked>Several codes per frame</label>
               <label><input type="checkbox" id="optTorch" checked>Auto light when dark</label>
-              <label><input type="checkbox" id="optStill" checked>High-res still rescue</label>
               <label><input type="checkbox" id="optSound" checked>Beep</label>
               <label><input type="checkbox" id="optVibe" checked>Vibrate</label>
             </div></div>
@@ -561,6 +569,16 @@ function laplacianVar(g, w, h) {
 }
 const grayToRGBA = (g) => { const u = new Uint32Array(g.length); for (let i = 0; i < g.length; i++) { const v = g[i]; u[i] = 0xff000000 | (v << 16) | (v << 8) | v; } return new Uint8ClampedArray(u.buffer); };
 const bytesToHex = (b) => Array.from(b || []).map(x => x.toString(16).padStart(2, '0')).join(' ');
+function ean13Bits(d) {
+  const L = ['0001101', '0011001', '0010011', '0111101', '0100011', '0110001', '0101111', '0111011', '0110111', '0001011'];
+  const R = L.map(s => s.split('').map(c => c === '0' ? '1' : '0').join('')), G = R.map(s => s.split('').reverse().join(''));
+  const PAR = ['LLLLLL', 'LLGLGG', 'LLGGLG', 'LLGGGL', 'LGLLGG', 'LGGLLG', 'LGGGLL', 'LGLGLG', 'LGLGGL', 'LGGLGL'];
+  let bits = '101';
+  for (let i = 0; i < 6; i++) bits += (PAR[+d[0]][i] === 'L' ? L : G)[+d[1 + i]];
+  bits += '01010';
+  for (let i = 7; i < 13; i++) bits += R[+d[i]];
+  return bits + '101';
+}
 /* PURE:END */
 
 /* ===================== App ===================== */
@@ -569,7 +587,7 @@ const el = { stage: $('stage'), video: $('video'), ov: $('overlay'), hud: $('hud
   btnStart: $('btnStart'), btnStop: $('btnStop'), btnTorch: $('btnTorch'), selCam: $('selCam'), zoomBox: $('zoomBox'), zoom: $('zoom'), zoomVal: $('zoomVal'),
   meter: $('meter'), enhLabel: $('enhLabel'), result: $('result'), btnCopy: $('btnCopy'), hist: $('hist'), histEmpty: $('histEmpty') };
 
-const DEFAULTS = { mode: 'verified', enh: 'auto', scan: 'single', multi: true, torch: true, still: true, sound: true, vibe: true, preset: 'all', formats: [] };
+const DEFAULTS = { mode: 'verified', enh: 'auto', scan: 'single', multi: true, torch: true, stills: 'auto', camId: '', sound: true, vibe: true, preset: 'all', formats: [] };
 let settings = Object.assign({}, DEFAULTS);
 try { Object.assign(settings, JSON.parse(localStorage.getItem('reticle.settings') || '{}')); } catch (e) {}
 const saveSettings = () => { try { localStorage.setItem('reticle.settings', JSON.stringify(settings)); } catch (e) {} };
@@ -606,42 +624,112 @@ async function initEngines() {
       if (!window.ZXingWASM) await loadScript(c.js);
       await ZXingWASM.prepareZXingModule({ overrides: { locateFile: (path, prefix) => path.endsWith('.wasm') ? c.wasm : prefix + path }, fireImmediately: true });
       await ZXingWASM.readBarcodes(new ImageData(16, 16), { formats: [] });
-      zxReady = true; setChip('chipZx', 'ok', 'ZXing WASM ' + ZXV + ' ready'); return;
+      zxReady = true; setChip('chipZx', 'ok', 'ZXing WASM ' + ZXV + ' ready'); selfTest(); return;
     } catch (e) { console.warn('ZXing load attempt failed', e); }
   }
   zxFailed = true;
   setChip('chipZx', native ? 'warn' : 'bad', 'ZXing: offline');
   if (!native) showErr('The decoder library could not be downloaded and this browser has no built-in barcode detector. Check your internet connection and reload the page.');
 }
+/* Draw a known EAN-13 and read it back, so a broken decoder shows up immediately instead of as "nothing scans". */
+async function selfTest() {
+  try {
+    const bits = ean13Bits('4006381333931'), m = 4, W = bits.length * m + 160, H = 260;
+    const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d', { willReadFrequently: true });
+    x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#000';
+    for (let i = 0; i < bits.length; i++) if (bits[i] === '1') x.fillRect(80 + i * m, 30, m, 200);
+    const r = await runZX(x.getImageData(0, 0, W, H)), ok = r.some(q => /4006381333931/.test(q.text));
+    setChip('chipTest', ok ? 'ok' : 'bad', ok ? 'Self-test passed' : 'Self-test failed');
+    if (!ok) showErr('The decoder loaded but could not read a known-good test barcode. ' + (diag.lastError ? 'Decoder error: <code>' + esc(diag.lastError) + '</code>' : 'No error was reported.') + ' Open Diagnostics below the camera for details.');
+  } catch (e) { setChip('chipTest', 'bad', 'Self-test error'); }
+}
 function zxFormats() { return settings.preset === 'all' ? [] : (settings.formats || []).slice(); }
 function selectedKeys() { return new Set(zxFormats().map(normFmt)); }
-function zxOpts(extra) {
-  return Object.assign({ formats: zxFormats(), tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: settings.multi ? 6 : 1, textMode: 'HRI' }, extra || {});
+const diag = { decodes: 0, reads: 0, accepted: 0, errors: 0, lastError: '' };
+function zxOpts(level, extra) {
+  const n = settings.multi ? 6 : 1;
+  if (level === 0) return Object.assign({ formats: zxFormats(), tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: n, textMode: 'HRI' }, extra || {});
+  if (level === 1) return { formats: zxFormats(), tryHarder: true, maxNumberOfSymbols: n };
+  return {};
 }
+/* Decoder call that never fails silently: if the library rejects an option, retry with simpler options and record the error. */
 async function runZX(imageData, extra) {
   if (!zxReady) return [];
-  try { return await ZXingWASM.readBarcodes(imageData, zxOpts(extra)); }
-  catch (e) { if (settings.preset !== 'all') { try { return await ZXingWASM.readBarcodes(imageData, zxOpts(Object.assign({ formats: [] }, extra))); } catch (e2) {} } return []; }
+  diag.decodes++;
+  for (let level = 0; level < 3; level++) {
+    try { const r = await ZXingWASM.readBarcodes(imageData, zxOpts(level, extra)); diag.reads += r.length; return r; }
+    catch (e) { diag.errors++; diag.lastError = (e && (e.message || e.name)) || String(e); }
+  }
+  return [];
 }
 
 /* ---------- camera ---------- */
 let stream = null, track = null, caps = {}, trackSettings = {}, imageCapture = null, running = false, paused = false, torchOn = false, loopHandle = 0;
 function showErr(html) { el.camErr.innerHTML = html; el.camErr.classList.add('show'); }
 function clearErr() { el.camErr.classList.remove('show'); el.camErr.textContent = ''; }
+/* An ideal far above any sensor makes the browser pick the highest resolution mode the camera has, whatever its aspect ratio. */
+const LADDER = [
+  { width: { min: 1280, ideal: 7680 }, height: { min: 720, ideal: 4320 } },
+  { width: { ideal: 7680 }, height: { ideal: 4320 } },
+  { width: { ideal: 3840 }, height: { ideal: 2160 } },
+  { width: { ideal: 1920 }, height: { ideal: 1080 } },
+  {}
+];
+async function acquire(deviceId) {
+  let lastErr = null;
+  for (const s of LADDER) {
+    try {
+      const v = Object.assign({}, deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } }, s, { frameRate: { ideal: 30 } });
+      return await navigator.mediaDevices.getUserMedia({ audio: false, video: v });
+    } catch (e) { lastErr = e; if (e.name === 'NotAllowedError' || e.name === 'SecurityError') break; }
+  }
+  throw lastErr || new Error('no camera');
+}
+const BAD_CAM = /ultra[\s-]?wide|telephoto|\btele\b|macro|depth|infra|\bir\b|front|user|selfie|truedepth/i;
+/* Phones expose several lenses. Open each rear one, read its real limits, and keep the sharpest one that can autofocus. */
+async function chooseBestCamera(cur) {
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const curId = cur.getVideoTracks()[0].getSettings().deviceId;
+  if (settings.camId && devs.some(d => d.deviceId === settings.camId)) return settings.camId === curId ? null : settings.camId;
+  const cand = devs.filter(d => !/front|user|selfie|truedepth/i.test(d.label));
+  if (cand.length < 2) return null;
+  $('idleMsg').textContent = 'Finding the best camera on this device…';
+  let best = null;
+  for (const d of cand) {
+    let s = null;
+    try {
+      s = d.deviceId === curId ? cur : await acquire(d.deviceId);
+      const t = s.getVideoTracks()[0], st = t.getSettings(), c = t.getCapabilities ? t.getCapabilities() : {};
+      const mw = (c.width && c.width.max) || st.width || 0, mh = (c.height && c.height.max) || st.height || 0;
+      const score = mw * mh + (c.focusMode && c.focusMode.includes('continuous') ? 2e7 : 0) - (BAD_CAM.test(d.label) ? 5e7 : 0);
+      if (!best || score > best.score) best = { id: d.deviceId, score };
+    } catch (e) { /* skip lenses that cannot be opened */ }
+    finally { if (s && s !== cur) s.getTracks().forEach(t => t.stop()); }
+  }
+  if (best) { settings.camId = best.id; saveSettings(); return best.id === curId ? null : best.id; }
+  return null;
+}
+/* Read the camera's real capability range and push the stream to it if the first request fell short. */
+async function maximizeTrack() {
+  if (!track || !caps.width || !caps.height) return;
+  const before = track.getSettings(), px = (before.width || 0) * (before.height || 0);
+  if (caps.width.max * caps.height.max <= px) return;
+  try {
+    await track.applyConstraints({ width: caps.width.max, height: caps.height.max });
+    const a = track.getSettings();
+    if ((a.width || 0) * (a.height || 0) < px) await track.applyConstraints({ width: before.width, height: before.height });
+  } catch (e) { try { await track.applyConstraints({ width: before.width, height: before.height }); } catch (e2) {} }
+}
 async function startCamera(deviceId) {
   stopCamera(true); clearErr();
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     showErr('This page cannot reach the camera. Camera access needs a secure address: open it from <code>https://</code> or from <code>http://localhost</code>, not from a plain <code>http://</code> address. You can still use “Scan a photo”.');
     return;
   }
-  const sizes = [{ width: { ideal: 3840 }, height: { ideal: 2160 } }, { width: { ideal: 1920 }, height: { ideal: 1080 } }, {}];
   let lastErr = null;
-  for (const s of sizes) {
-    try {
-      const v = Object.assign({}, deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } }, s, { frameRate: { ideal: 30 } });
-      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: v });
-      break;
-    } catch (e) { lastErr = e; if (e.name === 'NotAllowedError' || e.name === 'SecurityError') break; }
+  try { stream = await acquire(deviceId); } catch (e) { lastErr = e; }
+  if (stream && !deviceId) {
+    try { const better = await chooseBestCamera(stream); if (better) { const s2 = await acquire(better); stream.getTracks().forEach(t => t.stop()); stream = s2; } } catch (e) {}
   }
   if (!stream) {
     const n = lastErr && lastErr.name;
@@ -652,6 +740,7 @@ async function startCamera(deviceId) {
   track = stream.getVideoTracks()[0];
   try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) { caps = {}; }
   trackSettings = track.getSettings ? track.getSettings() : {};
+  await maximizeTrack();
   const adv = [];
   if (caps.focusMode && caps.focusMode.includes('continuous')) adv.push({ focusMode: 'continuous' });
   if (caps.exposureMode && caps.exposureMode.includes('continuous')) adv.push({ exposureMode: 'continuous' });
@@ -666,13 +755,13 @@ async function startCamera(deviceId) {
   try {
     const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
     if (devs.length > 1) {
-      el.selCam.innerHTML = devs.map((d, i) => '<option value="' + d.deviceId + '">' + (d.label || 'Camera ' + (i + 1)).replace(/[<>&]/g, '') + '</option>').join('');
-      const cur = trackSettings.deviceId; if (cur) el.selCam.value = cur;
+      el.selCam.innerHTML = '<option value="auto">Auto: best quality</option>' + devs.map((d, i) => '<option value="' + d.deviceId + '">' + (d.label || 'Camera ' + (i + 1)).replace(/[<>&]/g, '') + '</option>').join('');
+      el.selCam.value = settings.camId && devs.some(d => d.deviceId === settings.camId) ? settings.camId : 'auto';
       el.selCam.hidden = false;
     }
   } catch (e) {}
   el.stage.classList.remove('idle', 'paused'); el.btnStop.disabled = false;
-  running = true; paused = false; resetProgress(); sizeOverlay(); startLoop();
+  running = true; paused = false; resetProgress(); sizeOverlay(); setTier(0, TIER_WHY[0]); startLoop();
 }
 function stopCamera(silent) {
   running = false; cancelLoop();
@@ -736,7 +825,7 @@ function drawOverlay() {
 window.addEventListener('resize', sizeOverlay);
 
 /* ---------- processing state ---------- */
-const WORK_LONG = 1600;
+const WORK_LONG = 2560; // frames are decoded at up to 2560 px on the long side; crops below use the camera's native pixels
 const wc = document.createElement('canvas'), wctx = wc.getContext('2d', { willReadFrequently: true });
 const cc = document.createElement('canvas'), cctx = cc.getContext('2d', { willReadFrequently: true });
 const ring = [];
@@ -750,7 +839,11 @@ function setTier(t, why) {
 }
 function hud() {
   const w = el.video.videoWidth, h = el.video.videoHeight;
-  el.hud.innerHTML = '<span class="chip">' + w + '×' + h + '</span><span class="chip">' + fps + ' fps</span><span class="chip">Level ' + tier + '</span>' + (torchOn ? '<span class="chip">Light on</span>' : '');
+  const mx = caps.width && caps.height ? ' of ' + caps.width.max + '×' + caps.height.max : '';
+  el.hud.innerHTML = '<span class="chip' + (w < 1920 && !mx ? ' warn' : '') + '">' + w + '×' + h + mx + '</span><span class="chip">' + fps + ' fps</span><span class="chip">Level ' + tier + '</span>' + (torchOn ? '<span class="chip">Light on</span>' : '');
+  $('diag').textContent = 'video ' + w + '×' + h + (mx ? ' (camera max' + mx.slice(3) + ')' : ' (camera did not report limits)') + (imageCapture ? ' · photo capture available' : ' · no photo capture') + '\n' +
+    'frames ' + frameId + ' · decoder calls ' + diag.decodes + ' · raw reads ' + diag.reads + ' · accepted ' + diag.accepted + ' · errors ' + diag.errors +
+    (diag.lastError ? '\nlast decoder error: ' + diag.lastError : '') + '\nengine: ' + (zxReady ? 'ZXing WASM' : 'not loaded') + (native ? ' + native' : '');
   $('gRes').textContent = Math.round(w * h / 1e5) / 10 + ' MP'; $('bRes').style.width = Math.min(100, w * h / (3840 * 2160) * 100) + '%';
   $('gLight').textContent = Math.round(metrics.light); $('bLight').style.width = Math.min(100, metrics.light / 255 * 100) + '%';
   $('gSharp').textContent = Math.round(metrics.sharp); $('bSharp').style.width = Math.min(100, metrics.sharp / 400 * 100) + '%';
@@ -804,7 +897,8 @@ async function processFrame() {
   // Native detector on the raw frame: cheap and independent of ZXing.
   if (native) { try { const r = await native.detect(wc); for (const b of r) cands.push(fromNative(b, ww, wh)); } catch (e) {} }
   const pool = strategies.filter(s => s.tier <= t && (!s.when || s.when(ctx)));
-  const budget = t === 0 ? 1 : t === 1 ? 2 : 3, start = performance.now();
+  maybeHires(now, t);
+  const budget = t === 0 ? 2 : t === 1 ? 3 : 4, start = performance.now();
   for (let k = 0; k < Math.min(budget, pool.length); k++) {
     const s = pool[(rot + k) % pool.length]; currentStrategy = s.name;
     try { const out = await s.run(ctx); for (const c of out) { c.strategy = s.id; cands.push(c); } } catch (e) { console.warn(s.id, e); }
@@ -825,8 +919,8 @@ function fromZX(r, toNorm) {
 }
 const rgbaOf = (g, w, h) => new ImageData(grayToRGBA(g), w, h);
 async function zxGray(g, w, h, toNorm, extra) { return (await runZX(rgbaOf(g, w, h), extra)).map(r => fromZX(r, toNorm)); }
-function cropVideo(rect, long) {
-  const sc = long / Math.max(rect.w, rect.h), w = Math.max(16, Math.round(rect.w * sc)), h = Math.max(16, Math.round(rect.h * sc));
+function cropVideo(rect, long, noUp) {
+  const sc = Math.min(noUp ? 1 : Infinity, long / Math.max(rect.w, rect.h)), w = Math.max(16, Math.round(rect.w * sc)), h = Math.max(16, Math.round(rect.h * sc));
   cc.width = w; cc.height = h; cctx.imageSmoothingEnabled = true; cctx.imageSmoothingQuality = 'high';
   cctx.drawImage(el.video, rect.x, rect.y, rect.w, rect.h, 0, 0, w, h);
   const id = cctx.getImageData(0, 0, w, h), g = new Uint8ClampedArray(w * h);
@@ -837,6 +931,9 @@ const cropMap = (rect, w, h, vw, vh) => (x, y) => [(rect.x + x * rect.w / w) / v
 
 const strategies = [
   { id: 'raw', name: 'Original frame', tier: 0, run: async c => (await runZX(c.imgData)).map(r => fromZX(r, (x, y) => [x / c.ww, y / c.wh])) },
+  { id: 'centre-native', name: 'Centre at native resolution', tier: 0, when: c => Math.max(c.vw, c.vh) > c.ww * 1.05 || c.vw * c.vh > 1.5e6, run: async c => {
+      const rect = { x: c.vw * 0.2, y: c.vh * 0.2, w: c.vw * 0.6, h: c.vh * 0.6 }, k = cropVideo(rect, 2400, true);
+      return zxGray(k.g, k.w, k.h, cropMap(rect, k.w, k.h, c.vw, c.vh)); } },
   { id: 'contrast', name: 'Contrast and gamma', tier: 1, run: c => zxGray(stretchGray(c.gray), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh]) },
   { id: 'sharpen', name: 'Sharpen', tier: 1, run: c => zxGray(unsharp(stretchGray(c.gray), c.ww, c.wh, 1.6, 2), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh]) },
   { id: 'lcn', name: 'Local contrast', tier: 2, run: c => zxGray(lcn(c.gray, c.ww, c.wh, Math.max(15, c.ww >> 4)), c.ww, c.wh, (x, y) => [x / c.ww, y / c.wh]) },
@@ -860,13 +957,47 @@ const strategies = [
       const w = Math.max(32, c.ww >> 1), h = Math.max(32, c.wh >> 1); cc.width = w; cc.height = h; cctx.imageSmoothingQuality = 'high'; cctx.drawImage(wc, 0, 0, w, h);
       const id = cctx.getImageData(0, 0, w, h), g = new Uint8ClampedArray(w * h);
       for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (id.data[i] * 77 + id.data[i + 1] * 150 + id.data[i + 2] * 29) >> 8;
-      return zxGray(stretchGray(g), w, h, (x, y) => [x / w, y / h]); } },
-  { id: 'still', name: 'High-resolution still photo', tier: 3, when: () => settings.still && imageCapture && performance.now() - lastStill > 3500,
-    run: async () => {
-      lastStill = performance.now();
-      const blob = await imageCapture.takePhoto(); const bmp = await createImageBitmap(blob);
-      const out = await decodeBitmapPasses(bmp, ['raw', 'contrast'], null); out.forEach(q => { q.pts = null; }); return out; } }
+      return zxGray(stretchGray(g), w, h, (x, y) => [x / w, y / h]); } }
 ];
+
+/* High-resolution photo lane: runs beside the live preview (not in it) and decodes the camera's full-sensor still. */
+let hiresBusy = false, photoCaps = null, hiresId = 0;
+function maybeHires(now, t) {
+  if (hiresBusy || !imageCapture || settings.stills === 'off' || paused) return;
+  const stuck = now - lastProgress;
+  const want = settings.stills === 'always' ? now - lastStill > 900 : (t >= 1 && stuck > 1000 && now - lastStill > 1400);
+  if (!want) return;
+  hiresBusy = true; lastStill = now;
+  (async () => {
+    try {
+      if (!photoCaps) { try { photoCaps = await imageCapture.getPhotoCapabilities(); } catch (e) { photoCaps = {}; } }
+      const s = { fillLightMode: 'off' };
+      if (photoCaps.imageWidth && photoCaps.imageHeight) { s.imageWidth = photoCaps.imageWidth.max; s.imageHeight = photoCaps.imageHeight.max; }
+      let blob; try { blob = await imageCapture.takePhoto(s); } catch (e) { blob = await imageCapture.takePhoto(); }
+      const bmp = await createImageBitmap(blob);
+      const cands = await decodeHires(bmp); if (bmp.close) bmp.close();
+      if (cands.length) handleCandidates(cands, 'h' + (++hiresId));
+    } catch (e) { diag.errors++; diag.lastError = 'still photo: ' + ((e && (e.message || e.name)) || e); }
+    finally { hiresBusy = false; }
+  })();
+}
+async function decodeHires(bmp) {
+  const grab = (sx, sy, sw, sh, long) => {
+    const s = Math.min(1, long / Math.max(sw, sh)), w = Math.round(sw * s), h = Math.round(sh * s);
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d', { willReadFrequently: true });
+    x.imageSmoothingQuality = 'high'; x.drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h); return x.getImageData(0, 0, w, h);
+  };
+  const full = grab(0, 0, bmp.width, bmp.height, 3200), mid = grab(bmp.width * 0.2, bmp.height * 0.2, bmp.width * 0.6, bmp.height * 0.6, 3200), out = [];
+  const add = (r, name) => { const c = fromZX(r, null); c.strategy = name; out.push(c); };
+  for (const [name, img] of [['still full', full], ['still centre', mid]]) for (const r of await runZX(img)) add(r, name);
+  if (!out.length) {
+    const g = new Uint8ClampedArray(mid.width * mid.height);
+    for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = (mid.data[i] * 77 + mid.data[i + 1] * 150 + mid.data[i + 2] * 29) >> 8;
+    for (const r of await runZX(rgbaOf(unsharp(stretchGray(g), mid.width, mid.height, 1.4, 2), mid.width, mid.height))) add(r, 'still enhanced');
+  }
+  if (native) { try { for (const b of await native.detect(full)) { const c = fromNative(b, full.width, full.height); c.pts = null; c.strategy = 'still native'; out.push(c); } } catch (e) {} }
+  return out;
+}
 
 /* Decode a still bitmap with a few passes; used by the photo path and by the still-photo rescue. */
 async function decodeBitmapPasses(bmp, passes, toNormFull) {
@@ -935,6 +1066,7 @@ function accept(c, v, need) {
   const rec = { id: now + '-' + Math.random().toString(36).slice(2, 6), time: new Date().toISOString(), fmt: c.fmt, fmtLabel: fmtInfo(c.fmt).label, text: c.text,
     bytes: c.bytes, sym: c.sym, engine: Array.from(v.engines).join('+'), reads: v.frames.size, strategy: Array.from(v.strategies).filter(s => s !== 'native').join(', ') || 'native',
     tier, info };
+  diag.accepted++;
   history.unshift(rec); saveHistory(); renderResult(rec); renderHistory();
   if (c.pts) addOverlay(c.pts, '#2fd27a', 1600);
   el.flash.classList.add('on'); setTimeout(() => el.flash.classList.remove('on'), 150);
@@ -1077,13 +1209,13 @@ window.addEventListener('paste', e => { const f = [...(e.clipboardData ? e.clipb
 /* ---------- settings UI ---------- */
 function buildSettings() {
   $('selMode').value = settings.mode; $('selEnh').value = settings.enh; $('selScan').value = settings.scan; $('selPreset').value = settings.preset;
-  $('optMulti').checked = settings.multi; $('optTorch').checked = settings.torch; $('optStill').checked = settings.still; $('optSound').checked = settings.sound; $('optVibe').checked = settings.vibe;
+  $('optMulti').checked = settings.multi; $('optTorch').checked = settings.torch; $('selStills').value = settings.stills; $('optSound').checked = settings.sound; $('optVibe').checked = settings.vibe;
   const fc = $('fmtChecks'); fc.innerHTML = ALL_FORMATS.map(f => '<label><input type="checkbox" value="' + f + '">' + f + '</label>').join('');
   syncFormatChecks(); fc.style.display = settings.preset === 'all' ? 'none' : 'flex';
 }
 function syncFormatChecks() { const set = new Set(settings.preset === 'all' ? ALL_FORMATS : settings.formats); $('fmtChecks').querySelectorAll('input').forEach(i => i.checked = set.has(i.value)); }
-[['selMode', 'mode'], ['selEnh', 'enh'], ['selScan', 'scan']].forEach(([id, k]) => $(id).addEventListener('change', e => { settings[k] = e.target.value; saveSettings(); resetProgress(); if (k === 'scan' && settings.scan === 'continuous' && paused) resume(); }));
-[['optMulti', 'multi'], ['optTorch', 'torch'], ['optStill', 'still'], ['optSound', 'sound'], ['optVibe', 'vibe']].forEach(([id, k]) => $(id).addEventListener('change', e => { settings[k] = e.target.checked; saveSettings(); }));
+[['selMode', 'mode'], ['selEnh', 'enh'], ['selScan', 'scan'], ['selStills', 'stills']].forEach(([id, k]) => $(id).addEventListener('change', e => { settings[k] = e.target.value; saveSettings(); resetProgress(); if (k === 'scan' && settings.scan === 'continuous' && paused) resume(); }));
+[['optMulti', 'multi'], ['optTorch', 'torch'], ['optSound', 'sound'], ['optVibe', 'vibe']].forEach(([id, k]) => $(id).addEventListener('change', e => { settings[k] = e.target.checked; saveSettings(); }));
 $('selPreset').addEventListener('change', e => {
   settings.preset = e.target.value;
   if (settings.preset !== 'custom' && settings.preset !== 'all') settings.formats = PRESETS[settings.preset].slice();
@@ -1103,7 +1235,11 @@ el.btnStop.addEventListener('click', () => stopCamera());
 $('btnResume').addEventListener('click', resume);
 el.btnTorch.addEventListener('click', () => setTorch(!torchOn));
 el.zoom.addEventListener('input', () => setZoom(+el.zoom.value));
-el.selCam.addEventListener('change', () => startCamera(el.selCam.value));
+el.selCam.addEventListener('change', () => {
+  const v = el.selCam.value;
+  settings.camId = v === 'auto' ? '' : v; saveSettings();
+  startCamera(v === 'auto' ? undefined : v);
+});
 el.stage.addEventListener('click', e => { if (running && !paused && !e.target.closest('button')) tapFocus(e); });
 document.addEventListener('keydown', e => { if (e.code === 'Space' && paused && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)) { e.preventDefault(); resume(); } });
 document.addEventListener('visibilitychange', () => { if (document.hidden && running) { paused = paused || false; } });
